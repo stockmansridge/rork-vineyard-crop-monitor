@@ -209,14 +209,14 @@ export function computeIrrigation(input: IrrigationInput): IrrigationRecommendat
     state = 'low-confidence';
     urgency = 'none';
     confidence = 'low';
-    headline = 'Not enough data yet';
+    headline = 'Insufficient data for irrigation recommendation';
     detail = 'Add a location, wait for weather history, or install a soil probe to enable irrigation recommendations.';
   } else if (seasonStale && !probeFresh) {
     state = 'low-confidence';
     urgency = 'low';
     confidence = 'low';
-    headline = 'Waiting on fresh data';
-    detail = 'Weather history is stale and no fresh probe readings are available. Recommendation is not decision-grade.';
+    headline = 'Waiting on fresher data';
+    detail = 'Confidence reduced due to stale weather history and no fresh probe readings. Advisory only — not decision-grade.';
   } else {
     const preRainDeficit = currentDeficitMm;
     if (preRainDeficit >= mad_mm && forecastEffRain48h >= mad_mm * 0.8) {
@@ -226,29 +226,29 @@ export function computeIrrigation(input: IrrigationInput): IrrigationRecommendat
     if (currentDeficitMm >= mad_mm && forecastEffRain48h < mad_mm * 0.5) {
       state = 'irrigate-today';
       urgency = currentDeficitMm >= mad_mm * 1.4 ? 'critical' : 'high';
-      headline = `Irrigate ${vineyard.name} today`;
-      detail = `Soil water deficit of ${currentDeficitMm.toFixed(1)} mm has reached the management threshold (${mad_mm.toFixed(1)} mm). Forecast rain is insufficient to close the gap.`;
+      headline = `Recommended: irrigate ${vineyard.name} today`;
+      detail = `Soil water deficit of ${currentDeficitMm.toFixed(1)} mm has reached the management threshold (${mad_mm.toFixed(1)} mm). Based on current forecast, rain is insufficient to close the gap.`;
     } else if (projectedDeficit48h >= mad_mm && forecastRainMm48h < 5) {
       state = 'irrigate-48h';
       urgency = 'medium';
       headline = `Plan irrigation within 48h · ${vineyard.name}`;
-      detail = `Projected deficit in 48h is ${projectedDeficit48h.toFixed(1)} mm with little rain expected.`;
+      detail = `Based on current forecast, projected deficit in 48h is ${projectedDeficit48h.toFixed(1)} mm with little rain expected.`;
     } else if (forecastEffRain48h >= mad_mm * 0.8 && currentDeficitMm < mad_mm * 1.2) {
       state = 'no-irrigation';
       urgency = 'none';
       headline = `Hold irrigation · ${vineyard.name}`;
-      detail = `${forecastRainMm48h.toFixed(0)} mm rain expected in 48h will recharge the root zone. Re-evaluate after the rain event.`;
+      detail = `${forecastRainMm48h.toFixed(0)} mm rain expected in 48h should recharge the root zone. Re-evaluate after the rain event.`;
       if (preRainDeficit >= mad_mm) rainChangedDecision = true;
     } else if (currentDeficitMm < mad_mm * 0.4) {
       state = 'no-irrigation';
       urgency = 'none';
-      headline = `Root zone adequate · ${vineyard.name}`;
+      headline = `Root zone looks adequate · ${vineyard.name}`;
       detail = `Current deficit (${currentDeficitMm.toFixed(1)} mm) is well below the management threshold.`;
     } else {
       state = 'monitor';
       urgency = 'low';
       headline = `Monitor ${vineyard.name}`;
-      detail = `Deficit at ${currentDeficitMm.toFixed(1)} mm (threshold ${mad_mm.toFixed(1)} mm). Re-check after next weather update.`;
+      detail = `Deficit at ${currentDeficitMm.toFixed(1)} mm (threshold ${mad_mm.toFixed(1)} mm). Monitor and re-check after next weather update.`;
     }
 
     // Confidence
@@ -387,11 +387,18 @@ export function toRecommendation(rec: IrrigationRecommendation): Recommendation 
     : rec.suggestedApplicationMm > 0
     ? ` → ${rec.suggestedApplicationMm.toFixed(1)}mm`
     : '';
+  const grade: Recommendation['grade'] =
+    rec.confidence === 'high' && rec.usedProbeData
+      ? 'operational'
+      : rec.confidence === 'low'
+      ? 'advisory'
+      : 'advisory';
   return {
     id: `irr-${rec.vineyardId}-${rec.state}`,
     kind,
     priority,
     confidence: rec.confidence,
+    grade,
     title: rec.headline,
     reason: `${rec.detail}${runTxt}`,
     vineyardId: rec.vineyardId,
@@ -399,6 +406,9 @@ export function toRecommendation(rec: IrrigationRecommendation): Recommendation 
     timestamp: rec.generatedAt,
     action: { label: 'Open block', route: `/field-detail?id=${rec.vineyardId}` },
     trustNote: rec.usedProbeData ? 'Water balance + probe' : 'Water balance · forecast',
+    logicSummary: 'FAO-56 style water balance: effective rain minus crop water use, bounded by the management-allowable depletion (MAD) threshold.',
+    inputs: rec.reasoning.map((r) => ({ label: r.label, value: r.value, impact: r.impact })),
+    freshnessNote: rec.usedProbeData ? 'Includes fresh probe input' : 'Forecast-only water balance',
   };
 }
 

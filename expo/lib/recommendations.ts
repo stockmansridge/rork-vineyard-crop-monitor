@@ -24,11 +24,25 @@ export type RecommendationPriority = 'critical' | 'high' | 'medium' | 'low';
 
 export type RecommendationConfidence = 'high' | 'medium' | 'low';
 
+export type RecommendationGrade =
+  | 'operational'
+  | 'advisory'
+  | 'monitor'
+  | 'insufficient-data';
+
+export interface RecommendationInput {
+  label: string;
+  value: string;
+  freshness?: string;
+  impact?: 'positive' | 'negative' | 'neutral';
+}
+
 export interface Recommendation {
   id: string;
   kind: RecommendationKind;
   priority: RecommendationPriority;
   confidence: RecommendationConfidence;
+  grade: RecommendationGrade;
   title: string;
   reason: string;
   vineyardId: string | null;
@@ -39,6 +53,52 @@ export interface Recommendation {
     route?: string;
   };
   trustNote?: string;
+  logicSummary?: string;
+  inputs?: RecommendationInput[];
+  freshnessNote?: string;
+}
+
+export function gradeLabel(g: RecommendationGrade): string {
+  switch (g) {
+    case 'operational':
+      return 'Operational';
+    case 'advisory':
+      return 'Advisory';
+    case 'monitor':
+      return 'Monitor only';
+    case 'insufficient-data':
+      return 'Insufficient data';
+  }
+}
+
+export function gradeDescription(g: RecommendationGrade): string {
+  switch (g) {
+    case 'operational':
+      return 'Supported by fresh, site-specific data — suitable for an operational decision.';
+    case 'advisory':
+      return 'Based on forecast or derived inputs. Use alongside a field check before acting.';
+    case 'monitor':
+      return 'Conditions worth watching. No action recommended yet.';
+    case 'insufficient-data':
+      return 'Not enough fresh or site-specific data for a confident recommendation.';
+  }
+}
+
+function inferGrade(
+  confidence: RecommendationConfidence,
+  kind: RecommendationKind,
+  priority: RecommendationPriority,
+  usedObserved: boolean
+): RecommendationGrade {
+  if (kind === 'stale-data' || kind === 'setup') return 'insufficient-data';
+  if (confidence === 'low') {
+    return priority === 'low' ? 'monitor' : 'advisory';
+  }
+  if (priority === 'low' && (kind === 'spray-ok' || kind === 'disease-risk' || kind === 'inspect')) {
+    return 'monitor';
+  }
+  if (confidence === 'high' && usedObserved) return 'operational';
+  return 'advisory';
 }
 
 export interface ProbeSnapshot {
@@ -70,6 +130,11 @@ export const DEFAULT_REC_THRESHOLDS: RecommendationThresholds = {
   lowMoisturePct: 20,
   highMoisturePct: 45,
 };
+
+export function withGrade(rec: Recommendation, usedObserved: boolean = false): Recommendation {
+  if (rec.grade) return rec;
+  return { ...rec, grade: inferGrade(rec.confidence, rec.kind, rec.priority, usedObserved) };
+}
 
 const priorityOrder: Record<RecommendationPriority, number> = {
   critical: 0,
@@ -122,12 +187,14 @@ export function computeRecommendations(
       kind: 'setup',
       priority: 'medium',
       confidence: 'high',
+      grade: 'insufficient-data',
       title: 'Add your first vineyard',
       reason: 'Recommendations become block-specific once a vineyard is added.',
       vineyardId: null,
       vineyardName: null,
       timestamp: now,
       action: { label: 'Add vineyard', route: '/add-field' },
+      logicSummary: 'No blocks available — recommendation engine is idle until one is added.',
     });
     return out;
   }
@@ -154,13 +221,17 @@ export function computeRecommendations(
           kind: 'frost-watch',
           priority: frostA.status === 'critical' ? 'critical' : 'high',
           confidence: frostA.confidence,
+          grade: 'advisory',
           title: `${frostA.headline} · ${v.name}`,
-          reason: frostA.reasons.map((r) => r.label).join(' · ') || 'Overnight frost risk.',
+          reason: frostA.reasons.map((r) => r.label).join(' · ') || 'Overnight frost risk based on current forecast.',
           vineyardId: v.id,
           vineyardName: v.name,
           timestamp: frostA.coldestNight?.date ?? today?.date ?? now,
           action: { label: 'Open block', route: `/field-detail?id=${v.id}` },
           trustNote: 'Forecast-derived · advisory',
+          logicSummary: 'Compares forecast overnight minimum to frost thresholds, adjusted for block frost flag, elevation and humidity.',
+          inputs: frostA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
+          freshnessNote: f.fetchedAt ? `Forecast fetched ${f.fetchedAt}` : undefined,
         });
       } else if (frostA.status === 'watch') {
         out.push({
@@ -168,12 +239,15 @@ export function computeRecommendations(
           kind: 'frost-watch',
           priority: 'medium',
           confidence: frostA.confidence,
+          grade: 'monitor',
           title: `Frost watch · ${v.name}`,
-          reason: frostA.reasons.map((r) => r.label).join(' · '),
+          reason: frostA.reasons.map((r) => r.label).join(' · ') || 'Monitor overnight temperatures based on current forecast.',
           vineyardId: v.id,
           vineyardName: v.name,
           timestamp: frostA.coldestNight?.date ?? today?.date ?? now,
           trustNote: 'Forecast-derived · advisory',
+          logicSummary: 'Overnight minimum is close to watch threshold. Not yet indicative of damage risk.',
+          inputs: frostA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
         });
       }
 
@@ -184,13 +258,19 @@ export function computeRecommendations(
           kind: 'heat-watch',
           priority: 'high',
           confidence: 'medium',
-          title: `Heat stress risk · ${v.name}`,
-          reason: `Forecast high ${today.tMax.toFixed(1)}°C. Consider pre-irrigation and avoid midday canopy work.`,
+          grade: 'advisory',
+          title: `Elevated heat exposure · ${v.name}`,
+          reason: `Forecast high ${today.tMax.toFixed(1)}°C. Based on current forecast — consider pre-irrigation and avoid midday canopy work.`,
           vineyardId: v.id,
           vineyardName: v.name,
           timestamp: today.date,
           action: { label: 'Open block', route: `/field-detail?id=${v.id}` },
           trustNote: 'Open-Meteo forecast · advisory',
+          logicSummary: 'Compares forecast daily maximum to the heat threshold set in preferences.',
+          inputs: [
+            { label: 'Forecast max', value: `${today.tMax.toFixed(1)}°C`, impact: 'negative' },
+            { label: 'Heat threshold', value: `${t.heatTempC}°C` },
+          ],
         });
       }
 
@@ -203,7 +283,10 @@ export function computeRecommendations(
             kind: 'avoid-spray',
             priority: 'high',
             confidence: sprayA.confidence,
-            title: `Avoid spraying today · ${v.name}`,
+            grade: 'advisory',
+            logicSummary: 'Spray window scored against wind, rain likelihood and temperature thresholds.',
+            inputs: sprayA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
+            title: `Not suitable for spraying · ${v.name}`,
             reason:
               sprayA.reasons
                 .filter((r) => r.impact === 'negative')
@@ -221,6 +304,9 @@ export function computeRecommendations(
             kind: 'avoid-spray',
             priority: 'medium',
             confidence: sprayA.confidence,
+            grade: 'advisory',
+            logicSummary: 'Marginal conditions on at least one spray parameter — treat as cautionary.',
+            inputs: sprayA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
             title: `Spray with caution · ${v.name}`,
             reason: sprayA.reasons.map((r) => r.label).join(' · '),
             vineyardId: v.id,
@@ -234,7 +320,10 @@ export function computeRecommendations(
             kind: 'spray-ok',
             priority: 'low',
             confidence: sprayA.confidence,
-            title: `Good spray window · ${v.name}`,
+            grade: 'monitor',
+            logicSummary: 'All spray parameters currently within suitable ranges. Check field conditions before starting.',
+            inputs: sprayA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
+            title: `Spray window looks suitable · ${v.name}`,
             reason: sprayA.reasons
               .filter((r) => r.impact === 'positive')
               .map((r) => r.label)
@@ -270,13 +359,16 @@ export function computeRecommendations(
           kind: 'disease-risk',
           priority: diseaseA.status === 'inspect' ? 'high' : 'medium',
           confidence: diseaseA.confidence,
-          title: `${diseaseA.headline} · ${v.name}`,
-          reason: diseaseA.reasons.map((r) => r.label).join(' · '),
+          grade: 'advisory',
+          title: diseaseA.status === 'inspect' ? `Recommended inspection for disease · ${v.name}` : `Elevated disease-supportive conditions · ${v.name}`,
+          reason: diseaseA.reasons.map((r) => r.label).join(' · ') || 'Conditions support canopy disease pressure.',
           vineyardId: v.id,
           vineyardName: v.name,
           timestamp: now,
           action: { label: 'Open block', route: `/field-detail?id=${v.id}` },
           trustNote: 'Generic disease-supportive proxy · advisory',
+          logicSummary: 'Heuristic score from wet days, mild temperatures, humidity and block disease flag. Not a pathogen-specific model.',
+          inputs: diseaseA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
         });
       } else if (diseaseA.status === 'monitor' && next3.length > 0) {
         out.push({
@@ -284,12 +376,15 @@ export function computeRecommendations(
           kind: 'disease-risk',
           priority: 'low',
           confidence: diseaseA.confidence,
+          grade: 'monitor',
           title: `Monitor disease conditions · ${v.name}`,
-          reason: diseaseA.reasons.map((r) => r.label).join(' · '),
+          reason: diseaseA.reasons.map((r) => r.label).join(' · ') || 'Keep an eye on canopy conditions this week.',
           vineyardId: v.id,
           vineyardName: v.name,
           timestamp: now,
           trustNote: 'Generic disease-supportive proxy · advisory',
+          logicSummary: 'Conditions are marginal. Not yet at inspection threshold.',
+          inputs: diseaseA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
         });
       }
 
@@ -301,11 +396,17 @@ export function computeRecommendations(
           kind: 'drainage',
           priority: 'high',
           confidence: 'medium',
-          title: `Check drainage · ${v.name}`,
-          reason: `${heavy.precipitation.toFixed(0)}mm expected ${heavy.date}. Block is flagged for waterlogging.`,
+          grade: 'advisory',
+          title: `Recommended drainage check · ${v.name}`,
+          reason: `${heavy.precipitation.toFixed(0)}mm expected ${heavy.date}. Block is flagged for waterlogging — recommended inspection ahead of the rain event.`,
           vineyardId: v.id,
           vineyardName: v.name,
           timestamp: heavy.date,
+          logicSummary: 'Forecast daily rainfall above the drainage threshold combined with block waterlogging flag.',
+          inputs: [
+            { label: 'Forecast rainfall', value: `${heavy.precipitation.toFixed(0)}mm on ${heavy.date}`, impact: 'negative' },
+            { label: 'Waterlogging flag', value: 'Enabled for this block', impact: 'negative' },
+          ],
         });
       }
     }
@@ -320,12 +421,14 @@ export function computeRecommendations(
           kind: 'stale-data',
           priority: 'low',
           confidence: 'low',
-          title: `Probe data stale · ${p.name}`,
-          reason: `No recent reading from ${p.name}. Field conditions may have changed.`,
+          grade: 'insufficient-data',
+          title: `Probe data is stale · ${p.name}`,
+          reason: `No recent reading from ${p.name}. Confidence reduced due to stale probe data — field conditions may have changed.`,
           vineyardId: v.id,
           vineyardName: v.name,
           timestamp: p.last_reading,
           action: { label: 'Open probe', route: `/probe-detail?id=${p.id}` },
+          logicSummary: 'Probe last reported outside the expected freshness window.',
         });
         continue;
       }
@@ -337,12 +440,18 @@ export function computeRecommendations(
             kind: 'drainage',
             priority: 'medium',
             confidence: 'high',
-            title: `Wet soil · ${v.name}`,
-            reason: `${p.name} at ${p.moisture.toFixed(0)}% (above ${t.highMoisturePct}%). Check drainage and hold irrigation.`,
+            grade: 'operational',
+            title: `Soil trending wet · ${v.name}`,
+            reason: `${p.name} at ${p.moisture.toFixed(0)}% (above ${t.highMoisturePct}%). Recommended inspection of drainage and holding irrigation.`,
             vineyardId: v.id,
             vineyardName: v.name,
             timestamp: p.last_reading,
             trustNote: 'Observed · soil probe',
+            logicSummary: 'Fresh probe reading exceeds the high-moisture threshold.',
+            inputs: [
+              { label: 'Probe moisture', value: `${p.moisture.toFixed(0)}%`, impact: 'negative' },
+              { label: 'High-moisture threshold', value: `${t.highMoisturePct}%` },
+            ],
           });
         }
       }
@@ -356,12 +465,14 @@ export function computeRecommendations(
         kind: 'inspect',
         priority: 'medium',
         confidence: 'low',
-        title: `Scout ${v.name} in person`,
-        reason: 'No fresh probe data and last satellite scan is stale. Ground-truth the block.',
+        grade: 'advisory',
+        title: `Recommended inspection · ${v.name}`,
+        reason: 'No fresh probe data and last satellite scan is stale. Confidence reduced due to stale inputs — ground-truth the block.',
         vineyardId: v.id,
         vineyardName: v.name,
         timestamp: now,
         action: { label: 'Open block', route: `/field-detail?id=${v.id}` },
+        logicSummary: 'Both remote inputs (probe and satellite) are outside the freshness window.',
       });
     }
 
@@ -371,11 +482,13 @@ export function computeRecommendations(
         kind: 'inspect',
         priority: 'low',
         confidence: 'low',
-        title: `Watch ${v.name} for low-vigor signals`,
+        grade: 'monitor',
+        title: `Monitor ${v.name} for low-vigor signals`,
         reason: 'Block has low-vigor history. Consider adding a soil probe for targeted decisions.',
         vineyardId: v.id,
         vineyardName: v.name,
         timestamp: now,
+        logicSummary: 'Historical flag only — no current signal. Kept as a long-term watch item.',
       });
     }
   }
@@ -386,7 +499,12 @@ export function computeRecommendations(
       out.map((r) =>
         r.kind === 'irrigate' || r.kind === 'drainage'
           ? r
-          : { ...r, confidence: 'low', trustNote: 'Demo data — not decision grade' }
+          : {
+              ...r,
+              confidence: 'low',
+              grade: 'advisory',
+              trustNote: 'Demo data — advisory only',
+            }
       )
     );
   }

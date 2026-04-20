@@ -154,10 +154,10 @@ export function assessSpray(
 
   const headline =
     todayClass.status === 'suitable'
-      ? 'Good spray window today'
+      ? 'Spray window looks suitable today'
       : todayClass.status === 'caution'
-      ? 'Spray with caution today'
-      : 'Do not spray today';
+      ? 'Spray with caution today — marginal conditions'
+      : 'Not suitable for spraying today';
 
   const stale = isStale('weather-forecast', forecast.fetchedAt);
   const confidence: DecisionConfidence = stale ? 'low' : opts?.isDemo ? 'low' : 'medium';
@@ -234,12 +234,12 @@ export function assessFrost(
 
   const headline =
     status === 'critical'
-      ? 'Critical frost risk'
+      ? 'Critical frost risk forecast'
       : status === 'elevated'
       ? 'Elevated frost risk'
       : status === 'watch'
-      ? 'Frost watch'
-      : 'No frost concern';
+      ? 'Frost watch — monitor overnight'
+      : 'No frost concern based on current forecast';
 
   const stale = isStale('weather-forecast', forecast.fetchedAt);
   const confidence: DecisionConfidence = stale ? 'low' : opts?.isDemo ? 'low' : 'medium';
@@ -331,12 +331,12 @@ export function assessDisease(
 
   const headline =
     status === 'inspect'
-      ? 'Inspect blocks for disease'
+      ? 'Recommended inspection for disease'
       : status === 'elevated'
-      ? 'Elevated disease pressure'
+      ? 'Elevated disease-supportive conditions'
       : status === 'monitor'
-      ? 'Monitor disease conditions'
-      : 'Low disease pressure';
+      ? 'Monitor disease-supportive conditions'
+      : 'Low disease-supportive pressure';
 
   const stale = isStale('weather-forecast', forecast.fetchedAt);
   const confidence: DecisionConfidence = stale || opts?.isDemo ? 'low' : score >= 3 ? 'medium' : 'low';

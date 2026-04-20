@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -23,8 +23,11 @@ import {
   type Recommendation,
   type RecommendationPriority,
   type RecommendationKind,
+  type RecommendationGrade,
   type ProbeSnapshot,
+  gradeLabel,
 } from '@/lib/recommendations';
+import RecommendationExplainModal from '@/components/RecommendationExplainModal';
 import { useVineyards } from '@/providers/VineyardProvider';
 import { useAlerts } from '@/providers/AlertsProvider';
 import { useAuth } from '@/providers/AuthProvider';
@@ -41,6 +44,19 @@ function priorityConfig(p: RecommendationPriority) {
       return { color: Colors.info, bg: Colors.infoMuted, label: 'Medium' };
     case 'low':
       return { color: Colors.textSecondary, bg: Colors.backgroundAlt, label: 'Low' };
+  }
+}
+
+function gradeColor(g: RecommendationGrade): { color: string; bg: string } {
+  switch (g) {
+    case 'operational':
+      return { color: Colors.primary, bg: Colors.primaryMuted };
+    case 'advisory':
+      return { color: Colors.info, bg: Colors.infoMuted };
+    case 'monitor':
+      return { color: Colors.secondary, bg: Colors.secondaryMuted };
+    case 'insufficient-data':
+      return { color: Colors.warning, bg: Colors.warningMuted };
   }
 }
 
@@ -77,14 +93,17 @@ function RecommendationRow({
   rec,
   onPress,
   onScout,
+  onExplain,
   existingTask,
 }: {
   rec: Recommendation;
   onPress: () => void;
   onScout?: () => void;
+  onExplain: () => void;
   existingTask: boolean;
 }) {
   const cfg = priorityConfig(rec.priority);
+  const gcfg = gradeColor(rec.grade);
   const Icon = kindIcon(rec.kind);
   const canScout = !!rec.vineyardId && rec.kind !== 'setup' && rec.kind !== 'spray-ok';
   return (
@@ -105,14 +124,28 @@ function RecommendationRow({
         </View>
         <Text style={styles.reason} numberOfLines={2}>{rec.reason}</Text>
         <View style={styles.metaRow}>
+          <View style={[styles.gradeTag, { backgroundColor: gcfg.bg, borderColor: gcfg.color + '40' }]}>
+            <Text style={[styles.gradeTagText, { color: gcfg.color }]}>
+              {gradeLabel(rec.grade)}
+            </Text>
+          </View>
           <View style={styles.conf}>
             <ShieldCheck size={10} color={Colors.textMuted} />
             <Text style={styles.confText}>{rec.confidence} confidence</Text>
           </View>
-          {rec.trustNote && (
-            <Text style={styles.trustNote} numberOfLines={1}>· {rec.trustNote}</Text>
-          )}
         </View>
+        <Pressable
+          onPress={(e) => {
+            e.stopPropagation();
+            onExplain();
+          }}
+          style={({ pressed }) => [styles.explainBtn, pressed && styles.pressed]}
+          hitSlop={6}
+          testID={`explain-btn-${rec.id}`}
+        >
+          <Info size={11} color={Colors.textSecondary} />
+          <Text style={styles.explainBtnText}>Why this recommendation</Text>
+        </Pressable>
         {canScout && (
           <Pressable
             onPress={(e) => {
@@ -147,6 +180,7 @@ export default function TodayActions() {
   const { forecasts, probes, prefs } = useAlerts();
   const { isDemoMode } = useAuth();
   const { findByRecId, createTask, tasks: scoutTasks } = useScoutTasks();
+  const [explainRec, setExplainRec] = useState<Recommendation | null>(null);
 
   const probeSnapshots: ProbeSnapshot[] = useMemo(
     () =>
@@ -240,11 +274,17 @@ export default function TodayActions() {
               rec={rec}
               onPress={() => handlePress(rec)}
               onScout={() => void handleScout(rec)}
+              onExplain={() => setExplainRec(rec)}
               existingTask={!!findByRecId(rec.id)}
             />
           ))}
         </View>
       )}
+      <RecommendationExplainModal
+        recommendation={explainRec}
+        visible={!!explainRec}
+        onClose={() => setExplainRec(null)}
+      />
     </View>
   );
 }
@@ -351,6 +391,34 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: 10,
     flex: 1,
+  },
+  gradeTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+    borderWidth: 1,
+  },
+  gradeTagText: {
+    fontSize: 9,
+    fontWeight: '800' as const,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase' as const,
+  },
+  explainBtn: {
+    alignSelf: 'flex-start' as const,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  explainBtnText: {
+    color: Colors.textSecondary,
+    fontSize: 10,
+    fontWeight: '700' as const,
+    textDecorationLine: 'underline' as const,
   },
   pressed: {
     opacity: 0.75,
