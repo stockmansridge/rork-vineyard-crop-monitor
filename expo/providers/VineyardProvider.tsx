@@ -5,7 +5,35 @@ import { Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from './AuthProvider';
 
-export interface DbVineyard {
+export interface BlockAgronomy {
+  clone: string | null;
+  rootstock: string | null;
+  row_spacing_m: number | null;
+  vine_spacing_m: number | null;
+  training_system: string | null;
+  pruning_type: string | null;
+  irrigation_type: string | null;
+  irrigation_zone: string | null;
+  emitter_spacing_m: number | null;
+  emitter_flow_lph: number | null;
+  soil_type: string | null;
+  subsoil_notes: string | null;
+  drainage_notes: string | null;
+  slope_pct: number | null;
+  aspect: string | null;
+  elevation_m: number | null;
+  frost_risk: boolean | null;
+  heat_exposure: boolean | null;
+  disease_prone: boolean | null;
+  low_vigor_history: boolean | null;
+  waterlogging_risk: boolean | null;
+  target_yield_t_per_ha: number | null;
+  normal_harvest_start: string | null;
+  normal_harvest_end: string | null;
+  block_notes: string | null;
+}
+
+export interface DbVineyard extends Partial<BlockAgronomy> {
   id: string;
   owner_id: string;
   name: string;

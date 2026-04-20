@@ -14,6 +14,7 @@ import { WeatherStationProvider } from "@/providers/WeatherStationProvider";
 import { IndexReadingsProvider } from "@/providers/IndexReadingsProvider";
 import { ProbeReadingsProvider } from "@/providers/ProbeReadingsProvider";
 import { RecordsProvider } from "@/providers/RecordsProvider";
+import { BlockSeasonsProvider } from "@/providers/BlockSeasonsProvider";
 import { AlertsProvider } from "@/providers/AlertsProvider";
 import { OfflineQueueProvider } from "@/providers/OfflineQueueProvider";
 
@@ -187,6 +188,20 @@ function RootLayoutNav() {
           }}
         />
         <Stack.Screen
+          name="edit-block-profile"
+          options={{
+            title: "Block Profile",
+            presentation: "modal",
+          }}
+        />
+        <Stack.Screen
+          name="block-seasons"
+          options={{
+            title: "Seasons",
+            presentation: "modal",
+          }}
+        />
+        <Stack.Screen
           name="onboarding"
           options={{
             headerShown: false,
@@ -222,9 +237,11 @@ export default function RootLayout() {
                 <IndexReadingsProvider>
                   <ProbeReadingsProvider>
                     <RecordsProvider>
-                      <AlertsProvider>
-                        <RootLayoutNav />
-                      </AlertsProvider>
+                      <BlockSeasonsProvider>
+                        <AlertsProvider>
+                          <RootLayoutNav />
+                        </AlertsProvider>
+                      </BlockSeasonsProvider>
                     </RecordsProvider>
                   </ProbeReadingsProvider>
                 </IndexReadingsProvider>

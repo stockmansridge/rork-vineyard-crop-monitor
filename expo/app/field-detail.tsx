@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { MapPin, Calendar, Leaf, Satellite, Droplets, Share2, Trash2, Layers, Thermometer, CloudRain, Flame, Snowflake, ClipboardList, Scissors, SprayCan, Wheat, TrendingUp, ChevronRight } from 'lucide-react-native';
+import { MapPin, Calendar, Leaf, Satellite, Droplets, Share2, Trash2, Layers, Thermometer, CloudRain, Flame, Snowflake, ClipboardList, Scissors, SprayCan, Wheat, TrendingUp, ChevronRight, Settings2, Sprout, AlertTriangle, Edit3 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import HealthBar from '@/components/HealthBar';
 import { useVineyards } from '@/providers/VineyardProvider';
@@ -15,6 +15,7 @@ import ForecastSection from '@/components/ForecastSection';
 import { useRecords } from '@/providers/RecordsProvider';
 import DataTrustBadge from '@/components/DataTrustBadge';
 import { demoTrust, evaluateTrust } from '@/lib/dataTrust';
+import { useBlockSeasons } from '@/providers/BlockSeasonsProvider';
 
 export default function FieldDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -26,6 +27,9 @@ export default function FieldDetailScreen() {
 
   const vineyard = vineyards.find(v => v.id === id);
   const { getVineyardTasks, getVineyardPhenology, getVineyardSprays, getVineyardHarvests } = useRecords();
+  const { getVineyardSeasons } = useBlockSeasons();
+  const vineyardSeasons = id ? getVineyardSeasons(id) : [];
+  const currentSeason = vineyardSeasons.find((s) => s.season === new Date().getFullYear()) ?? vineyardSeasons[0] ?? null;
   const taskCount = id ? getVineyardTasks(id).length : 0;
   const phenologyCount = id ? getVineyardPhenology(id).length : 0;
   const sprayCount = id ? getVineyardSprays(id).length : 0;
@@ -126,6 +130,119 @@ export default function FieldDetailScreen() {
             </Pressable>
           )}
         </View>
+
+        <View style={styles.profileSummary}>
+          <View style={styles.profileHeader}>
+            <Settings2 size={16} color={Colors.primary} />
+            <Text style={styles.profileTitle}>Block Profile</Text>
+            <Pressable
+              onPress={() => router.push({ pathname: '/edit-block-profile', params: { id: vineyard.id } })}
+              style={({ pressed }) => [styles.editBtn, pressed && styles.pressed]}
+              hitSlop={8}
+            >
+              <Edit3 size={13} color={Colors.primary} />
+              <Text style={styles.editBtnText}>Edit</Text>
+            </Pressable>
+          </View>
+          {(() => {
+            const v = vineyard;
+            const rows: { label: string; value: string }[] = [];
+            if (v.clone) rows.push({ label: 'Clone', value: v.clone });
+            if (v.rootstock) rows.push({ label: 'Rootstock', value: v.rootstock });
+            if (v.training_system) rows.push({ label: 'Training', value: v.training_system });
+            if (v.pruning_type) rows.push({ label: 'Pruning', value: v.pruning_type });
+            if (v.row_spacing_m || v.vine_spacing_m) {
+              rows.push({
+                label: 'Spacing',
+                value: `${v.row_spacing_m ?? '—'} × ${v.vine_spacing_m ?? '—'} m`,
+              });
+            }
+            if (v.irrigation_type) rows.push({ label: 'Irrigation', value: v.irrigation_type });
+            if (v.soil_type) rows.push({ label: 'Soil', value: v.soil_type });
+            if (v.aspect || v.slope_pct != null) {
+              rows.push({
+                label: 'Aspect/Slope',
+                value: `${v.aspect ?? '—'} · ${v.slope_pct != null ? v.slope_pct + '%' : '—'}`,
+              });
+            }
+            if (v.target_yield_t_per_ha != null) {
+              rows.push({ label: 'Target yield', value: `${v.target_yield_t_per_ha} t/ha` });
+            }
+            if (rows.length === 0) {
+              return (
+                <Pressable
+                  onPress={() => router.push({ pathname: '/edit-block-profile', params: { id: vineyard.id } })}
+                  style={({ pressed }) => [styles.profileEmpty, pressed && styles.pressed]}
+                >
+                  <Text style={styles.profileEmptyText}>
+                    Add variety, clone, spacing, irrigation, soil and risk flags to unlock block-specific recommendations.
+                  </Text>
+                  <Text style={styles.profileEmptyCta}>Complete profile →</Text>
+                </Pressable>
+              );
+            }
+            return (
+              <View style={styles.profileGrid}>
+                {rows.map((r) => (
+                  <View key={r.label} style={styles.profileCell}>
+                    <Text style={styles.profileCellLabel}>{r.label}</Text>
+                    <Text style={styles.profileCellValue} numberOfLines={1}>
+                      {r.value}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            );
+          })()}
+          {(() => {
+            const flags: { label: string; active: boolean }[] = [
+              { label: 'Frost', active: !!vineyard.frost_risk },
+              { label: 'Heat', active: !!vineyard.heat_exposure },
+              { label: 'Disease', active: !!vineyard.disease_prone },
+              { label: 'Low vigor', active: !!vineyard.low_vigor_history },
+              { label: 'Waterlogging', active: !!vineyard.waterlogging_risk },
+            ];
+            const active = flags.filter((f) => f.active);
+            if (active.length === 0) return null;
+            return (
+              <View style={styles.flagRow}>
+                <AlertTriangle size={12} color={Colors.warning} />
+                {active.map((f) => (
+                  <View key={f.label} style={styles.flagChip}>
+                    <Text style={styles.flagChipText}>{f.label}</Text>
+                  </View>
+                ))}
+              </View>
+            );
+          })()}
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [styles.seasonCard, pressed && styles.pressed]}
+          onPress={() => router.push({ pathname: '/block-seasons', params: { id: vineyard.id } })}
+        >
+          <View style={styles.seasonIcon}>
+            <Sprout size={18} color={Colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.seasonTitle}>
+              {currentSeason ? `${currentSeason.season} Season` : 'Track this season'}
+            </Text>
+            <Text style={styles.seasonSub} numberOfLines={1}>
+              {currentSeason
+                ? [
+                    currentSeason.budburst_date && `Bud ${currentSeason.budburst_date.slice(5)}`,
+                    currentSeason.flowering_date && `Flr ${currentSeason.flowering_date.slice(5)}`,
+                    currentSeason.veraison_date && `Ver ${currentSeason.veraison_date.slice(5)}`,
+                    currentSeason.harvest_date && `Hvt ${currentSeason.harvest_date.slice(5)}`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || 'Record phenology stages'
+                : 'Log budburst, flowering, veraison and harvest'}
+            </Text>
+          </View>
+          <ChevronRight size={16} color={Colors.textMuted} />
+        </Pressable>
 
         <View style={styles.metaGrid}>
           <View style={styles.metaCard}>
@@ -725,6 +842,138 @@ const styles = StyleSheet.create({
     color: Colors.background,
     fontSize: 14,
     fontWeight: '700' as const,
+  },
+  profileSummary: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    padding: 14,
+  },
+  profileHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    marginBottom: 10,
+  },
+  profileTitle: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '700' as const,
+  },
+  editBtn: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: Colors.primaryMuted,
+    borderWidth: 1,
+    borderColor: Colors.primary + '60',
+  },
+  editBtnText: {
+    color: Colors.primary,
+    fontSize: 11,
+    fontWeight: '700' as const,
+  },
+  profileEmpty: {
+    backgroundColor: Colors.backgroundAlt,
+    padding: 12,
+    borderRadius: 10,
+    gap: 6,
+  },
+  profileEmptyText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  profileEmptyCta: {
+    color: Colors.primary,
+    fontSize: 12,
+    fontWeight: '700' as const,
+  },
+  profileGrid: {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+  },
+  profileCell: {
+    backgroundColor: Colors.backgroundAlt,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    minWidth: '47%',
+    flexGrow: 1,
+  },
+  profileCellLabel: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: '600' as const,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase' as const,
+  },
+  profileCellValue: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '700' as const,
+    marginTop: 2,
+  },
+  flagRow: {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.cardBorder,
+  },
+  flagChip: {
+    backgroundColor: Colors.warningMuted,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Colors.warning + '40',
+  },
+  flagChipText: {
+    color: Colors.warning,
+    fontSize: 10,
+    fontWeight: '700' as const,
+  },
+  seasonCard: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+    marginHorizontal: 16,
+    marginTop: 10,
+    padding: 14,
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  seasonIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Colors.primaryMuted,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  seasonTitle: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '700' as const,
+  },
+  seasonSub: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    marginTop: 2,
   },
   sectionTrust: {
     flexDirection: 'row' as const,

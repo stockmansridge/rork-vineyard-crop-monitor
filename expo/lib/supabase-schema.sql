@@ -442,7 +442,118 @@ create trigger harvest_records_updated_at
   before update on public.harvest_records
   for each row execute function public.update_updated_at();
 
--- 13. Migration: add role column to existing vineyard_shares tables
+-- 13a. Block agronomy profile columns on vineyards
+alter table public.vineyards
+  add column if not exists clone text,
+  add column if not exists rootstock text,
+  add column if not exists row_spacing_m numeric,
+  add column if not exists vine_spacing_m numeric,
+  add column if not exists training_system text,
+  add column if not exists pruning_type text,
+  add column if not exists irrigation_type text,
+  add column if not exists irrigation_zone text,
+  add column if not exists emitter_spacing_m numeric,
+  add column if not exists emitter_flow_lph numeric,
+  add column if not exists soil_type text,
+  add column if not exists subsoil_notes text,
+  add column if not exists drainage_notes text,
+  add column if not exists slope_pct numeric,
+  add column if not exists aspect text,
+  add column if not exists elevation_m numeric,
+  add column if not exists frost_risk boolean default false,
+  add column if not exists heat_exposure boolean default false,
+  add column if not exists disease_prone boolean default false,
+  add column if not exists low_vigor_history boolean default false,
+  add column if not exists waterlogging_risk boolean default false,
+  add column if not exists target_yield_t_per_ha numeric,
+  add column if not exists normal_harvest_start text,
+  add column if not exists normal_harvest_end text,
+  add column if not exists block_notes text;
+
+-- 13b. Per-season phenology + target dates per block
+create table if not exists public.block_seasons (
+  id uuid default gen_random_uuid() primary key,
+  vineyard_id uuid references public.vineyards on delete cascade not null,
+  owner_id uuid references auth.users on delete cascade not null,
+  season integer not null,
+  budburst_date date,
+  flowering_date date,
+  fruit_set_date date,
+  veraison_date date,
+  harvest_date date,
+  target_yield_t_per_ha numeric,
+  actual_yield_t_per_ha numeric,
+  notes text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique (vineyard_id, season)
+);
+
+create index if not exists idx_block_seasons_vineyard
+  on public.block_seasons (vineyard_id, season desc);
+
+alter table public.block_seasons enable row level security;
+
+create policy "Owners can manage their block seasons"
+  on public.block_seasons for all
+  using (auth.uid() = owner_id);
+
+create policy "Shared users can view block seasons"
+  on public.block_seasons for select
+  using (
+    exists (
+      select 1 from public.vineyard_shares
+      where vineyard_shares.vineyard_id = block_seasons.vineyard_id
+      and vineyard_shares.shared_with_id = auth.uid()
+      and vineyard_shares.status = 'accepted'
+    )
+  );
+
+drop trigger if exists block_seasons_updated_at on public.block_seasons;
+create trigger block_seasons_updated_at
+  before update on public.block_seasons
+  for each row execute function public.update_updated_at();
+
+-- 13c. Block management zones (future-ready)
+create table if not exists public.block_zones (
+  id uuid default gen_random_uuid() primary key,
+  vineyard_id uuid references public.vineyards on delete cascade not null,
+  owner_id uuid references auth.users on delete cascade not null,
+  name text not null,
+  kind text not null default 'generic' check (kind in ('generic','probe_linked','high_vigor','low_vigor','issue_area')),
+  description text,
+  polygon_coords jsonb,
+  probe_id uuid references public.soil_probes on delete set null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists idx_block_zones_vineyard
+  on public.block_zones (vineyard_id);
+
+alter table public.block_zones enable row level security;
+
+create policy "Owners can manage their block zones"
+  on public.block_zones for all
+  using (auth.uid() = owner_id);
+
+create policy "Shared users can view block zones"
+  on public.block_zones for select
+  using (
+    exists (
+      select 1 from public.vineyard_shares
+      where vineyard_shares.vineyard_id = block_zones.vineyard_id
+      and vineyard_shares.shared_with_id = auth.uid()
+      and vineyard_shares.status = 'accepted'
+    )
+  );
+
+drop trigger if exists block_zones_updated_at on public.block_zones;
+create trigger block_zones_updated_at
+  before update on public.block_zones
+  for each row execute function public.update_updated_at();
+
+-- 14. Migration: add role column to existing vineyard_shares tables
 alter table public.vineyard_shares
   add column if not exists role text not null default 'worker';
 
