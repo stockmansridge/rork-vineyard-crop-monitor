@@ -31,6 +31,12 @@ export interface BlockAgronomy {
   normal_harvest_start: string | null;
   normal_harvest_end: string | null;
   block_notes: string | null;
+  irrigation_app_rate_mm_hr: number | null;
+  distribution_efficiency_pct: number | null;
+  crop_coefficient: number | null;
+  root_zone_depth_cm: number | null;
+  mad_pct: number | null;
+  soil_awc_mm_per_m: number | null;
 }
 
 export interface DbVineyard extends Partial<BlockAgronomy> {

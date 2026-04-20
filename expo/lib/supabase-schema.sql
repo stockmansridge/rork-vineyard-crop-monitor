@@ -468,7 +468,13 @@ alter table public.vineyards
   add column if not exists target_yield_t_per_ha numeric,
   add column if not exists normal_harvest_start text,
   add column if not exists normal_harvest_end text,
-  add column if not exists block_notes text;
+  add column if not exists block_notes text,
+  add column if not exists irrigation_app_rate_mm_hr numeric,
+  add column if not exists distribution_efficiency_pct numeric,
+  add column if not exists crop_coefficient numeric,
+  add column if not exists root_zone_depth_cm numeric,
+  add column if not exists mad_pct numeric,
+  add column if not exists soil_awc_mm_per_m numeric;
 
 -- 13b. Per-season phenology + target dates per block
 create table if not exists public.block_seasons (

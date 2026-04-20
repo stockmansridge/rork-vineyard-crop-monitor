@@ -1,6 +1,7 @@
 import type { WeatherForecast } from '@/lib/weather';
 import type { DbVineyard } from '@/providers/VineyardProvider';
 import { isStale, type DataTrust } from '@/lib/dataTrust';
+import { computeIrrigation, toRecommendation as irrigationToRec } from '@/lib/irrigation';
 
 export type RecommendationKind =
   | 'inspect'
@@ -205,22 +206,20 @@ export function computeRecommendations(
         }
       }
 
-      // Rain — hold irrigation
-      const rain48 = (f.days[0]?.precipitation ?? 0) + (f.days[1]?.precipitation ?? 0);
-      if (rain48 >= 10) {
-        out.push({
-          id: `hold-irr-${v.id}`,
-          kind: 'hold-irrigation',
-          priority: 'medium',
-          confidence: 'medium',
-          title: `Hold irrigation 48h · ${v.name}`,
-          reason: `${rain48.toFixed(0)}mm rain forecast in the next 48 hours.`,
-          vineyardId: v.id,
-          vineyardName: v.name,
-          timestamp: now,
-          trustNote: 'Open-Meteo forecast · advisory',
-        });
-      }
+      // Irrigation water balance (forecast-only; block-level detail uses season data)
+      const freshestProbe = vineyardProbes
+        .filter((p) => p.moisture != null && !isStale('probe', p.last_reading))
+        .sort((a, b) => (a.last_reading < b.last_reading ? 1 : -1))[0];
+      const irr = computeIrrigation({
+        vineyard: v,
+        season: null,
+        forecast: f,
+        probeMoisturePct: freshestProbe?.moisture ?? null,
+        probeObservedAt: freshestProbe?.last_reading ?? null,
+        isDemoMode: input.isDemoMode,
+      });
+      const irrRec = irrigationToRec(irr);
+      if (irrRec) out.push(irrRec);
 
       // Powdery mildew risk
       const wet = next3.filter((d) => d.precipitation >= 2 || d.precipProbability >= 60).length;
@@ -258,7 +257,7 @@ export function computeRecommendations(
       }
     }
 
-    // Probe-driven recommendations
+    // Probe-driven recommendations (wet/drainage + stale)
     let freshMoistureSeen = false;
     for (const p of vineyardProbes) {
       const stale = isStale('probe', p.last_reading);
@@ -279,21 +278,7 @@ export function computeRecommendations(
       }
       if (p.moisture != null) {
         freshMoistureSeen = true;
-        if (p.moisture < t.lowMoisturePct) {
-          out.push({
-            id: `dry-${p.id}`,
-            kind: 'irrigate',
-            priority: 'high',
-            confidence: 'high',
-            title: `Irrigate ${v.name}`,
-            reason: `${p.name} at ${p.moisture.toFixed(0)}% (below ${t.lowMoisturePct}%). Schedule irrigation.`,
-            vineyardId: v.id,
-            vineyardName: v.name,
-            timestamp: p.last_reading,
-            action: { label: 'Open block', route: `/field-detail?id=${v.id}` },
-            trustNote: 'Observed · soil probe',
-          });
-        } else if (p.moisture > t.highMoisturePct) {
+        if (p.moisture > t.highMoisturePct) {
           out.push({
             id: `wet-${p.id}`,
             kind: 'drainage',

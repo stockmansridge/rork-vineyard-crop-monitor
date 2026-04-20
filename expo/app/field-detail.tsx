@@ -16,6 +16,8 @@ import { useRecords } from '@/providers/RecordsProvider';
 import DataTrustBadge from '@/components/DataTrustBadge';
 import { demoTrust, evaluateTrust } from '@/lib/dataTrust';
 import { useBlockSeasons } from '@/providers/BlockSeasonsProvider';
+import IrrigationCard from '@/components/IrrigationCard';
+import { useIrrigation } from '@/hooks/useIrrigation';
 
 export default function FieldDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -51,6 +53,7 @@ export default function FieldDetailScreen() {
   const vineyardShareCount = shares.filter(s => s.vineyard_id === vineyard.id).length;
   const fieldProbes = soilProbes.filter(p => p.vineyardId === vineyard.id);
   const weather = useWeather(vineyard.latitude, vineyard.longitude);
+  const irrigation = useIrrigation(vineyard);
   const plantYear = vineyard.planting_date ? new Date(vineyard.planting_date).getFullYear() : null;
   const age = plantYear ? new Date().getFullYear() - plantYear : null;
 
@@ -310,6 +313,12 @@ export default function FieldDetailScreen() {
         <ForecastSection
           latitude={vineyard.latitude}
           longitude={vineyard.longitude}
+        />
+
+        <IrrigationCard
+          recommendation={irrigation.recommendation}
+          isLoading={irrigation.isLoading}
+          onEditProfile={() => router.push({ pathname: '/edit-block-profile', params: { id: vineyard.id } })}
         />
 
         <View style={styles.section}>

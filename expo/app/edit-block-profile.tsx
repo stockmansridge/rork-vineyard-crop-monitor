@@ -86,6 +86,12 @@ export default function EditBlockProfileScreen() {
   const [irrigationZone, setIrrigationZone] = useState<string>(s(vineyard?.irrigation_zone));
   const [emitterSpacing, setEmitterSpacing] = useState<string>(s(vineyard?.emitter_spacing_m));
   const [emitterFlow, setEmitterFlow] = useState<string>(s(vineyard?.emitter_flow_lph));
+  const [appRate, setAppRate] = useState<string>(s(vineyard?.irrigation_app_rate_mm_hr));
+  const [distEff, setDistEff] = useState<string>(s(vineyard?.distribution_efficiency_pct));
+  const [cropCoeff, setCropCoeff] = useState<string>(s(vineyard?.crop_coefficient));
+  const [rootZone, setRootZone] = useState<string>(s(vineyard?.root_zone_depth_cm));
+  const [madPct, setMadPct] = useState<string>(s(vineyard?.mad_pct));
+  const [awc, setAwc] = useState<string>(s(vineyard?.soil_awc_mm_per_m));
   const [soilType, setSoilType] = useState<string>(s(vineyard?.soil_type) || 'Loam');
   const [subsoilNotes, setSubsoilNotes] = useState<string>(s(vineyard?.subsoil_notes));
   const [drainageNotes, setDrainageNotes] = useState<string>(s(vineyard?.drainage_notes));
@@ -125,6 +131,12 @@ export default function EditBlockProfileScreen() {
       irrigation_zone: irrigationZone.trim() || null,
       emitter_spacing_m: n(emitterSpacing),
       emitter_flow_lph: n(emitterFlow),
+      irrigation_app_rate_mm_hr: n(appRate),
+      distribution_efficiency_pct: n(distEff),
+      crop_coefficient: n(cropCoeff),
+      root_zone_depth_cm: n(rootZone),
+      mad_pct: n(madPct),
+      soil_awc_mm_per_m: n(awc),
       soil_type: soilType.trim() || null,
       subsoil_notes: subsoilNotes.trim() || null,
       drainage_notes: drainageNotes.trim() || null,
@@ -245,6 +257,51 @@ export default function EditBlockProfileScreen() {
             value={emitterFlow}
             onChangeText={setEmitterFlow}
             keyboardType="decimal-pad"
+          />
+          <FormField
+            label="Application rate (mm/hr)"
+            value={appRate}
+            onChangeText={setAppRate}
+            keyboardType="decimal-pad"
+            placeholder="e.g. 3.5"
+          />
+          <FormField
+            label="Distribution efficiency (%)"
+            value={distEff}
+            onChangeText={setDistEff}
+            keyboardType="decimal-pad"
+            placeholder="e.g. 85"
+          />
+        </FormSection>
+
+        <FormSection label="WATER BALANCE">
+          <FormField
+            label="Crop coefficient (Kc)"
+            value={cropCoeff}
+            onChangeText={setCropCoeff}
+            keyboardType="decimal-pad"
+            placeholder="0.4 early · 0.7 mid · 0.5 late"
+          />
+          <FormField
+            label="Root zone depth (cm)"
+            value={rootZone}
+            onChangeText={setRootZone}
+            keyboardType="decimal-pad"
+            placeholder="Default 60"
+          />
+          <FormField
+            label="MAD threshold (%)"
+            value={madPct}
+            onChangeText={setMadPct}
+            keyboardType="decimal-pad"
+            placeholder="Default 50"
+          />
+          <FormField
+            label="Soil AWC (mm/m)"
+            value={awc}
+            onChangeText={setAwc}
+            keyboardType="decimal-pad"
+            placeholder="Sand 80 · Loam 140 · Clay 180"
           />
         </FormSection>
 
