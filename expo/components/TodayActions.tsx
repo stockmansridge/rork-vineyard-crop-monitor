@@ -28,6 +28,8 @@ import {
 import { useVineyards } from '@/providers/VineyardProvider';
 import { useAlerts } from '@/providers/AlertsProvider';
 import { useAuth } from '@/providers/AuthProvider';
+import { useScoutTasks } from '@/providers/ScoutTasksProvider';
+import { recommendationToDraft } from '@/lib/scoutTasks';
 
 function priorityConfig(p: RecommendationPriority) {
   switch (p) {
@@ -71,9 +73,20 @@ function kindIcon(k: RecommendationKind) {
   }
 }
 
-function RecommendationRow({ rec, onPress }: { rec: Recommendation; onPress: () => void }) {
+function RecommendationRow({
+  rec,
+  onPress,
+  onScout,
+  existingTask,
+}: {
+  rec: Recommendation;
+  onPress: () => void;
+  onScout?: () => void;
+  existingTask: boolean;
+}) {
   const cfg = priorityConfig(rec.priority);
   const Icon = kindIcon(rec.kind);
+  const canScout = !!rec.vineyardId && rec.kind !== 'setup' && rec.kind !== 'spray-ok';
   return (
     <Pressable
       onPress={onPress}
@@ -100,6 +113,28 @@ function RecommendationRow({ rec, onPress }: { rec: Recommendation; onPress: () 
             <Text style={styles.trustNote} numberOfLines={1}>· {rec.trustNote}</Text>
           )}
         </View>
+        {canScout && (
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation();
+              onScout?.();
+            }}
+            style={({ pressed }) => [
+              styles.scoutBtn,
+              existingTask && styles.scoutBtnActive,
+              pressed && styles.pressed,
+            ]}
+            hitSlop={6}
+            testID={`scout-btn-${rec.id}`}
+          >
+            <Eye size={11} color={existingTask ? Colors.primary : Colors.textSecondary} />
+            <Text
+              style={[styles.scoutBtnText, existingTask && { color: Colors.primary }]}
+            >
+              {existingTask ? 'Open scout task' : 'Create scout task'}
+            </Text>
+          </Pressable>
+        )}
       </View>
       <ChevronRight size={14} color={Colors.textMuted} />
     </Pressable>
@@ -111,6 +146,7 @@ export default function TodayActions() {
   const { vineyards } = useVineyards();
   const { forecasts, probes, prefs } = useAlerts();
   const { isDemoMode } = useAuth();
+  const { findByRecId, createTask } = useScoutTasks();
 
   const probeSnapshots: ProbeSnapshot[] = useMemo(
     () =>
@@ -157,6 +193,18 @@ export default function TodayActions() {
     }
   };
 
+  const handleScout = async (rec: Recommendation) => {
+    const existing = findByRecId(rec.id);
+    if (existing) {
+      router.push({ pathname: '/scout-task-detail', params: { id: existing.id } });
+      return;
+    }
+    const draft = recommendationToDraft(rec);
+    if (!draft) return;
+    const created = await createTask(draft);
+    router.push({ pathname: '/scout-task-detail', params: { id: created.id } });
+  };
+
   return (
     <View style={styles.container} testID="today-actions">
       <View style={styles.header}>
@@ -186,7 +234,13 @@ export default function TodayActions() {
       ) : (
         <View style={styles.list}>
           {topRecs.map((rec) => (
-            <RecommendationRow key={rec.id} rec={rec} onPress={() => handlePress(rec)} />
+            <RecommendationRow
+              key={rec.id}
+              rec={rec}
+              onPress={() => handlePress(rec)}
+              onScout={() => void handleScout(rec)}
+              existingTask={!!findByRecId(rec.id)}
+            />
           ))}
         </View>
       )}
@@ -319,5 +373,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center' as const,
     lineHeight: 17,
+  },
+  scoutBtn: {
+    alignSelf: 'flex-start' as const,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 5,
+    marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 7,
+    backgroundColor: Colors.backgroundAlt,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  scoutBtnActive: {
+    backgroundColor: Colors.primaryMuted,
+    borderColor: Colors.primary + '60',
+  },
+  scoutBtnText: {
+    color: Colors.textSecondary,
+    fontSize: 10,
+    fontWeight: '700' as const,
   },
 });

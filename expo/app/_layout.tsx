@@ -17,6 +17,7 @@ import { RecordsProvider } from "@/providers/RecordsProvider";
 import { BlockSeasonsProvider } from "@/providers/BlockSeasonsProvider";
 import { AlertsProvider } from "@/providers/AlertsProvider";
 import { OfflineQueueProvider } from "@/providers/OfflineQueueProvider";
+import { ScoutTasksProvider } from "@/providers/ScoutTasksProvider";
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -202,6 +203,20 @@ function RootLayoutNav() {
           }}
         />
         <Stack.Screen
+          name="scout-tasks"
+          options={{
+            title: "Scout Tasks",
+            presentation: "card",
+          }}
+        />
+        <Stack.Screen
+          name="scout-task-detail"
+          options={{
+            title: "Inspection",
+            presentation: "card",
+          }}
+        />
+        <Stack.Screen
           name="onboarding"
           options={{
             headerShown: false,
@@ -239,7 +254,9 @@ export default function RootLayout() {
                     <RecordsProvider>
                       <BlockSeasonsProvider>
                         <AlertsProvider>
-                          <RootLayoutNav />
+                          <ScoutTasksProvider>
+                            <RootLayoutNav />
+                          </ScoutTasksProvider>
                         </AlertsProvider>
                       </BlockSeasonsProvider>
                     </RecordsProvider>

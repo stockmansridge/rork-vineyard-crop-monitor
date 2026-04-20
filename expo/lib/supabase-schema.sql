@@ -559,7 +559,68 @@ create trigger block_zones_updated_at
   before update on public.block_zones
   for each row execute function public.update_updated_at();
 
--- 14. Migration: add role column to existing vineyard_shares tables
+-- 15. Scout tasks (alerts/recommendations → field inspections → outcomes)
+create table if not exists public.scout_tasks (
+  id uuid default gen_random_uuid() primary key,
+  vineyard_id uuid references public.vineyards on delete cascade not null,
+  owner_id uuid references auth.users on delete cascade not null,
+  trigger_kind text not null check (trigger_kind in ('falling-vigor','moisture-pattern','irrigation','disease','frost','heat','drainage','manual','other')),
+  trigger_rec_id text,
+  title text not null,
+  reason text,
+  urgency text not null default 'medium' check (urgency in ('critical','high','medium','low')),
+  confidence text not null default 'medium' check (confidence in ('high','medium','low')),
+  status text not null default 'open' check (status in ('open','in_progress','resolved','ignored')),
+  check_points jsonb,
+  inspected_at timestamptz,
+  outcome text check (outcome in ('confirmed','false_alarm','partial','not_checked')),
+  action_taken text,
+  resolution_notes text,
+  photos jsonb,
+  pins jsonb,
+  observations jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists idx_scout_tasks_vineyard_status
+  on public.scout_tasks (vineyard_id, status, created_at desc);
+
+alter table public.scout_tasks enable row level security;
+
+create policy "Owners can manage their scout tasks"
+  on public.scout_tasks for all
+  using (auth.uid() = owner_id);
+
+create policy "Shared users can view scout tasks"
+  on public.scout_tasks for select
+  using (
+    exists (
+      select 1 from public.vineyard_shares
+      where vineyard_shares.vineyard_id = scout_tasks.vineyard_id
+      and vineyard_shares.shared_with_id = auth.uid()
+      and vineyard_shares.status = 'accepted'
+    )
+  );
+
+create policy "Shared editors can update scout tasks"
+  on public.scout_tasks for update
+  using (
+    exists (
+      select 1 from public.vineyard_shares
+      where vineyard_shares.vineyard_id = scout_tasks.vineyard_id
+      and vineyard_shares.shared_with_id = auth.uid()
+      and vineyard_shares.status = 'accepted'
+      and vineyard_shares.permission = 'edit'
+    )
+  );
+
+drop trigger if exists scout_tasks_updated_at on public.scout_tasks;
+create trigger scout_tasks_updated_at
+  before update on public.scout_tasks
+  for each row execute function public.update_updated_at();
+
+-- 16. Migration: add role column to existing vineyard_shares tables
 alter table public.vineyard_shares
   add column if not exists role text not null default 'worker';
 

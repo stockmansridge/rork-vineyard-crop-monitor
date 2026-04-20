@@ -1,9 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
-import { AlertTriangle, AlertCircle, Info, BellOff, Settings as SettingsIcon, CheckCheck } from 'lucide-react-native';
+import { AlertTriangle, AlertCircle, Info, BellOff, Settings as SettingsIcon, CheckCheck, Eye } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useAlerts, ComputedAlert } from '@/providers/AlertsProvider';
+import { useScoutTasks } from '@/providers/ScoutTasksProvider';
+import type { ScoutTriggerKind } from '@/lib/scoutTasks';
+import type { RecommendationPriority } from '@/lib/recommendations';
 import DataTrustBadge from '@/components/DataTrustBadge';
 import { evaluateTrust } from '@/lib/dataTrust';
 import type { DataKind } from '@/lib/dataTrust';
@@ -28,9 +31,59 @@ function timeAgo(ts: string): string {
   return `${d}d ago`;
 }
 
+function categoryToTrigger(c: ComputedAlert['category']): ScoutTriggerKind {
+  switch (c) {
+    case 'frost':
+      return 'frost';
+    case 'heat':
+      return 'heat';
+    case 'rain':
+      return 'drainage';
+    case 'disease':
+      return 'disease';
+    case 'moisture':
+      return 'moisture-pattern';
+    case 'temperature':
+    case 'ph':
+    case 'ec':
+      return 'other';
+    case 'battery':
+    case 'offline':
+      return 'other';
+    default:
+      return 'other';
+  }
+}
+
+function severityToUrgency(s: ComputedAlert['severity']): RecommendationPriority {
+  if (s === 'danger') return 'high';
+  if (s === 'warning') return 'medium';
+  return 'low';
+}
+
 export default function AlertsScreen() {
   const router = useRouter();
   const { alerts, readIds, markRead, markAllRead, unreadCount } = useAlerts();
+  const { findByRecId, createTask } = useScoutTasks();
+
+  const scoutFromAlert = async (a: ComputedAlert) => {
+    if (!a.vineyardId) return;
+    const existing = findByRecId(a.id);
+    if (existing) {
+      router.push({ pathname: '/scout-task-detail', params: { id: existing.id } });
+      return;
+    }
+    const created = await createTask({
+      vineyard_id: a.vineyardId,
+      trigger_kind: categoryToTrigger(a.category),
+      trigger_rec_id: a.id,
+      title: `Scout ${a.vineyardName} — ${a.title}`,
+      reason: a.message,
+      urgency: severityToUrgency(a.severity),
+      confidence: 'medium',
+    });
+    router.push({ pathname: '/scout-task-detail', params: { id: created.id } });
+  };
 
   return (
     <>
@@ -104,6 +157,27 @@ export default function AlertsScreen() {
                     <Text style={styles.vineyard}>{a.vineyardName}</Text>
                     <Text style={styles.time}>{timeAgo(a.timestamp)}</Text>
                   </View>
+                  {a.vineyardId && (a.category !== 'battery' && a.category !== 'offline') && (
+                    <Pressable
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        void scoutFromAlert(a);
+                      }}
+                      style={({ pressed }) => [
+                        styles.scoutBtn,
+                        !!findByRecId(a.id) && styles.scoutBtnActive,
+                        pressed && styles.pressed,
+                      ]}
+                      hitSlop={6}
+                    >
+                      <Eye size={11} color={findByRecId(a.id) ? Colors.primary : Colors.textSecondary} />
+                      <Text
+                        style={[styles.scoutBtnText, !!findByRecId(a.id) && { color: Colors.primary }]}
+                      >
+                        {findByRecId(a.id) ? 'Open scout task' : 'Create scout task'}
+                      </Text>
+                    </Pressable>
+                  )}
                   <View style={styles.trustRow}>
                     <DataTrustBadge
                       trust={evaluateTrust({
@@ -192,4 +266,19 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   emptyBtnText: { color: Colors.primary, fontSize: 13, fontWeight: '700' as const },
+  scoutBtn: {
+    alignSelf: 'flex-start' as const,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 5,
+    marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 7,
+    backgroundColor: Colors.backgroundAlt,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  scoutBtnActive: { backgroundColor: Colors.primaryMuted, borderColor: Colors.primary + '60' },
+  scoutBtnText: { color: Colors.textSecondary, fontSize: 10, fontWeight: '700' as const },
 });

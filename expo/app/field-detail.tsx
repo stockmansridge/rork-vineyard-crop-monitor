@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { MapPin, Calendar, Leaf, Satellite, Droplets, Share2, Trash2, Layers, Thermometer, CloudRain, Flame, Snowflake, ClipboardList, Scissors, SprayCan, Wheat, TrendingUp, ChevronRight, Settings2, Sprout, AlertTriangle, Edit3 } from 'lucide-react-native';
+import { MapPin, Calendar, Leaf, Satellite, Droplets, Share2, Trash2, Layers, Thermometer, CloudRain, Flame, Snowflake, ClipboardList, Scissors, SprayCan, Wheat, TrendingUp, ChevronRight, Settings2, Sprout, AlertTriangle, Edit3, Eye, CheckCircle2 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import HealthBar from '@/components/HealthBar';
 import { useVineyards } from '@/providers/VineyardProvider';
@@ -21,6 +21,8 @@ import { useIrrigation } from '@/hooks/useIrrigation';
 import WeatherDecisionsCard from '@/components/WeatherDecisionsCard';
 import { useForecast } from '@/hooks/useForecast';
 import { assessAll } from '@/lib/weatherDecisions';
+import { useScoutTasks } from '@/providers/ScoutTasksProvider';
+import { statusLabel, triggerLabel } from '@/lib/scoutTasks';
 
 export default function FieldDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -35,6 +37,9 @@ export default function FieldDetailScreen() {
   const { getVineyardSeasons } = useBlockSeasons();
   const vineyardSeasons = id ? getVineyardSeasons(id) : [];
   const currentSeason = vineyardSeasons.find((s) => s.season === new Date().getFullYear()) ?? vineyardSeasons[0] ?? null;
+  const { getByVineyard: getScoutByVineyard } = useScoutTasks();
+  const scoutTasks = id ? getScoutByVineyard(id) : [];
+  const openScoutTasks = scoutTasks.filter((s) => s.status === 'open' || s.status === 'in_progress');
   const taskCount = id ? getVineyardTasks(id).length : 0;
   const phenologyCount = id ? getVineyardPhenology(id).length : 0;
   const sprayCount = id ? getVineyardSprays(id).length : 0;
@@ -321,6 +326,46 @@ export default function FieldDetailScreen() {
           longitude={vineyard.longitude}
         />
 
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Eye size={16} color={Colors.primary} />
+            <Text style={styles.sectionTitle}>Scout Tasks</Text>
+            <Pressable
+              onPress={() => router.push('/scout-tasks')}
+              style={({ pressed }) => [styles.scoutHeaderBtn, pressed && styles.pressed]}
+              hitSlop={6}
+            >
+              <Text style={styles.scoutHeaderBtnText}>See all</Text>
+              <ChevronRight size={13} color={Colors.primary} />
+            </Pressable>
+          </View>
+          {openScoutTasks.length === 0 ? (
+            <View style={styles.scoutEmpty}>
+              <CheckCircle2 size={16} color={Colors.primary} />
+              <Text style={styles.scoutEmptyText}>
+                No open inspections. Accept a suggested scout task from Today&apos;s actions to verify remote signals on the block.
+              </Text>
+            </View>
+          ) : (
+            openScoutTasks.slice(0, 3).map((t) => (
+              <Pressable
+                key={t.id}
+                onPress={() => router.push({ pathname: '/scout-task-detail', params: { id: t.id } })}
+                style={({ pressed }) => [styles.scoutRow, pressed && styles.pressed]}
+              >
+                <View style={styles.scoutDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.scoutTitle} numberOfLines={1}>{t.title}</Text>
+                  <Text style={styles.scoutSub} numberOfLines={1}>
+                    {triggerLabel(t.trigger_kind)} · {statusLabel(t.status)} · {t.urgency}
+                  </Text>
+                </View>
+                <ChevronRight size={14} color={Colors.textMuted} />
+              </Pressable>
+            ))
+          )}
+        </View>
+
         <WeatherDecisionsCard decisions={decisions} />
 
         <IrrigationCard
@@ -527,6 +572,34 @@ const styles = StyleSheet.create({
     alignItems: 'center' as const,
     gap: 16,
   },
+  scoutHeaderBtn: {
+    marginLeft: 'auto' as const,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 2,
+  },
+  scoutHeaderBtnText: { color: Colors.primary, fontSize: 12, fontWeight: '700' as const },
+  scoutEmpty: {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    gap: 8,
+    backgroundColor: Colors.backgroundAlt,
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 8,
+  },
+  scoutEmptyText: { color: Colors.textSecondary, fontSize: 12, flex: 1, lineHeight: 16 },
+  scoutRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  scoutDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary },
+  scoutTitle: { color: Colors.text, fontSize: 13, fontWeight: '700' as const },
+  scoutSub: { color: Colors.textMuted, fontSize: 11, marginTop: 2, textTransform: 'capitalize' as const },
   pressed: {
     opacity: 0.7,
   },

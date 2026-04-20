@@ -10,6 +10,7 @@ import {
   Inbox,
   Bell,
   MapPin,
+  Eye,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import MetricCard from '@/components/MetricCard';
@@ -21,6 +22,7 @@ import { useAlerts } from '@/providers/AlertsProvider';
 import { demoTrust, evaluateTrust, freshnessLabel, isStale } from '@/lib/dataTrust';
 import { useForecast } from '@/hooks/useForecast';
 import TodayActions from '@/components/TodayActions';
+import { useScoutTasks } from '@/providers/ScoutTasksProvider';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -28,6 +30,7 @@ export default function DashboardScreen() {
   const { vineyards, isLoading, isRefetching, refetch } = useVineyards();
   const { station } = useWeatherStation();
   const { unreadCount, probes } = useAlerts();
+  const { openCount: openScoutCount } = useScoutTasks();
   const firstVineyard = vineyards[0];
   const forecast = useForecast(
     firstVineyard?.latitude ?? null,
@@ -99,21 +102,38 @@ export default function DashboardScreen() {
         <Text style={styles.greeting}>G'day, {profile.display_name}</Text>
       )}
 
-      <Pressable
-        style={({ pressed }) => [styles.alertBanner, pressed && styles.pressed]}
-        onPress={() => router.push('/alerts')}
-        testID="alerts-banner"
-      >
-        <View style={styles.alertBannerIcon}>
-          <Bell size={16} color={totalAlerts > 0 ? Colors.warning : Colors.textMuted} />
-        </View>
-        <Text style={styles.alertBannerText}>
-          {totalAlerts > 0
-            ? `${totalAlerts} active alert${totalAlerts !== 1 ? 's' : ''}`
-            : 'All clear — no active alerts'}
-        </Text>
-        <ChevronRight size={14} color={Colors.textMuted} />
-      </Pressable>
+      <View style={styles.bannerRow}>
+        <Pressable
+          style={({ pressed }) => [styles.alertBanner, pressed && styles.pressed]}
+          onPress={() => router.push('/alerts')}
+          testID="alerts-banner"
+        >
+          <View style={styles.alertBannerIcon}>
+            <Bell size={16} color={totalAlerts > 0 ? Colors.warning : Colors.textMuted} />
+          </View>
+          <Text style={styles.alertBannerText} numberOfLines={1}>
+            {totalAlerts > 0
+              ? `${totalAlerts} alert${totalAlerts !== 1 ? 's' : ''}`
+              : 'All clear'}
+          </Text>
+          <ChevronRight size={14} color={Colors.textMuted} />
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.alertBanner, pressed && styles.pressed]}
+          onPress={() => router.push('/scout-tasks')}
+          testID="scout-banner"
+        >
+          <View style={styles.alertBannerIcon}>
+            <Eye size={16} color={openScoutCount > 0 ? Colors.primary : Colors.textMuted} />
+          </View>
+          <Text style={styles.alertBannerText} numberOfLines={1}>
+            {openScoutCount > 0
+              ? `${openScoutCount} scout task${openScoutCount !== 1 ? 's' : ''}`
+              : 'No open scout tasks'}
+          </Text>
+          <ChevronRight size={14} color={Colors.textMuted} />
+        </Pressable>
+      </View>
 
       <View style={styles.topSection}>
         <TodayActions />
@@ -358,17 +378,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700' as const,
   },
+  bannerRow: {
+    flexDirection: 'row' as const,
+    gap: 8,
+    marginBottom: 14,
+  },
   alertBanner: {
+    flex: 1,
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    gap: 10,
+    gap: 8,
     backgroundColor: Colors.card,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 10,
-    marginBottom: 14,
   },
   alertBannerIcon: {
     width: 28,
