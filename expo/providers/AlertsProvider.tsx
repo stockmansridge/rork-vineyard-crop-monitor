@@ -402,6 +402,9 @@ export const [AlertsProvider, useAlerts] = createContextHook(() => {
     [alerts, readIds]
   );
 
+  const forecasts = useMemo(() => forecastsQuery.data ?? {}, [forecastsQuery.data]);
+  const probes = useMemo(() => probesQuery.data ?? [], [probesQuery.data]);
+
   return useMemo(
     () => ({
       alerts,
@@ -413,6 +416,8 @@ export const [AlertsProvider, useAlerts] = createContextHook(() => {
       markRead,
       markAllRead,
       readIds,
+      forecasts,
+      probes,
       isLoading: probesQuery.isLoading || forecastsQuery.isLoading,
     }),
     [
@@ -425,8 +430,12 @@ export const [AlertsProvider, useAlerts] = createContextHook(() => {
       markRead,
       markAllRead,
       readIds,
+      forecasts,
+      probes,
       probesQuery.isLoading,
       forecastsQuery.isLoading,
     ]
   );
 });
+
+export type { DbProbe };
