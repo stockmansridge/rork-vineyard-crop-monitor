@@ -71,6 +71,9 @@ export interface DbScoutTask {
   follow_up_result: FollowUpResult | null;
   follow_up_notes: string | null;
   effectiveness: ActionEffectiveness | null;
+  created_by: string | null;
+  updated_by: string | null;
+  source_inputs: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }

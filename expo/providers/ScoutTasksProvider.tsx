@@ -27,6 +27,7 @@ export interface ScoutTaskDraft {
   urgency: RecommendationPriority;
   confidence: RecommendationConfidence;
   check_points?: ScoutCheckPoint[] | null;
+  source_inputs?: Record<string, unknown> | null;
 }
 
 export interface ScoutTaskUpdate {
@@ -131,6 +132,9 @@ export const [ScoutTasksProvider, useScoutTasks] = createContextHook(() => {
           follow_up_result: null,
           follow_up_notes: null,
           effectiveness: null,
+          created_by: 'demo-user-00000000-0000-0000-0000-000000000000',
+          updated_by: 'demo-user-00000000-0000-0000-0000-000000000000',
+          source_inputs: draft.source_inputs ?? null,
           created_at: nowIso(),
           updated_at: nowIso(),
         };
@@ -151,6 +155,9 @@ export const [ScoutTasksProvider, useScoutTasks] = createContextHook(() => {
         confidence: draft.confidence,
         status: 'open' as ScoutStatus,
         check_points: draft.check_points ?? null,
+        created_by: user.id,
+        updated_by: user.id,
+        source_inputs: draft.source_inputs ?? null,
       };
       const { data, error } = await supabase
         .from('scout_tasks')
@@ -169,15 +176,18 @@ export const [ScoutTasksProvider, useScoutTasks] = createContextHook(() => {
     mutationFn: async ({ id, updates }: { id: string; updates: ScoutTaskUpdate }): Promise<DbScoutTask> => {
       if (isDemoMode) {
         const next = demoTasks.map((t) =>
-          t.id === id ? { ...t, ...updates, updated_at: nowIso() } : t
+          t.id === id
+            ? { ...t, ...updates, updated_by: 'demo-user-00000000-0000-0000-0000-000000000000', updated_at: nowIso() }
+            : t
         );
         setDemoTasks(next);
         await persistDemo(next);
         return next.find((t) => t.id === id) as DbScoutTask;
       }
+      const withAudit = { ...updates, updated_by: user?.id ?? null };
       const { data, error } = await supabase
         .from('scout_tasks')
-        .update(updates)
+        .update(withAudit)
         .eq('id', id)
         .select()
         .single();

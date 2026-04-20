@@ -192,7 +192,7 @@ export const [RecordsProvider, useRecords] = createContextHook(() => {
       if (!user) throw new Error('Not authenticated');
       const { data, error } = await supabase
         .from('vineyard_tasks')
-        .insert({ ...input, owner_id: user.id })
+        .insert({ ...input, owner_id: user.id, created_by: user.id, updated_by: user.id })
         .select()
         .single();
       if (error) throw new Error(error.message);
@@ -207,7 +207,7 @@ export const [RecordsProvider, useRecords] = createContextHook(() => {
     mutationFn: async ({ id, ...updates }: Partial<DbTask> & { id: string }): Promise<DbTask> => {
       const { data, error } = await supabase
         .from('vineyard_tasks')
-        .update(updates)
+        .update({ ...updates, updated_by: user?.id ?? null })
         .eq('id', id)
         .select()
         .single();
@@ -234,7 +234,7 @@ export const [RecordsProvider, useRecords] = createContextHook(() => {
       if (!user) throw new Error('Not authenticated');
       const { data, error } = await supabase
         .from('phenology_events')
-        .insert({ ...input, owner_id: user.id })
+        .insert({ ...input, owner_id: user.id, created_by: user.id })
         .select()
         .single();
       if (error) throw new Error(error.message);
@@ -260,7 +260,7 @@ export const [RecordsProvider, useRecords] = createContextHook(() => {
       if (!user) throw new Error('Not authenticated');
       const { data, error } = await supabase
         .from('spray_records')
-        .insert({ ...input, owner_id: user.id })
+        .insert({ ...input, owner_id: user.id, created_by: user.id, updated_by: user.id })
         .select()
         .single();
       if (error) throw new Error(error.message);
@@ -286,7 +286,7 @@ export const [RecordsProvider, useRecords] = createContextHook(() => {
       if (!user) throw new Error('Not authenticated');
       const { data, error } = await supabase
         .from('harvest_records')
-        .insert({ ...input, owner_id: user.id })
+        .insert({ ...input, owner_id: user.id, created_by: user.id, updated_by: user.id })
         .select()
         .single();
       if (error) throw new Error(error.message);

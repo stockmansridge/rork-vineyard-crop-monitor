@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 import createContextHook from '@nkzw/create-context-hook';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   configureNotifications,
   requestNotificationPermission,
@@ -98,8 +98,15 @@ interface DbProbe {
   last_reading: string;
 }
 
+interface DbAlertAck {
+  alert_id: string;
+  read_at: string | null;
+  sent_at: string | null;
+}
+
 export const [AlertsProvider, useAlerts] = createContextHook(() => {
   const { user, isDemoMode } = useAuth();
+  const queryClient = useQueryClient();
   const { vineyards } = useVineyards();
   const [prefs, setPrefs] = useState<AlertPreferences>(DEFAULT_PREFS);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
@@ -127,14 +134,87 @@ export const [AlertsProvider, useAlerts] = createContextHook(() => {
     })();
   }, []);
 
-  const savePrefs = useCallback(async (next: AlertPreferences) => {
-    setPrefs(next);
-    try {
-      await AsyncStorage.setItem(PREFS_KEY, JSON.stringify(next));
-    } catch (e) {
-      console.log('[Alerts] prefs save error', e);
+  const remotePrefsQuery = useQuery({
+    queryKey: ['alert_prefs_remote', user?.id],
+    queryFn: async (): Promise<AlertPreferences | null> => {
+      if (!user || isDemoMode) return null;
+      const { data, error } = await supabase
+        .from('alert_preferences')
+        .select('prefs')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (error) {
+        console.log('[Alerts] remote prefs load error', error.message);
+        return null;
+      }
+      return (data?.prefs ?? null) as AlertPreferences | null;
+    },
+    enabled: !!user && !isDemoMode,
+    staleTime: 1000 * 60 * 10,
+  });
+
+  const remoteAcksQuery = useQuery({
+    queryKey: ['alert_acks_remote', user?.id],
+    queryFn: async (): Promise<DbAlertAck[]> => {
+      if (!user || isDemoMode) return [];
+      const { data, error } = await supabase
+        .from('alert_acks')
+        .select('alert_id,read_at,sent_at')
+        .eq('user_id', user.id);
+      if (error) {
+        console.log('[Alerts] remote acks load error', error.message);
+        return [];
+      }
+      return (data ?? []) as DbAlertAck[];
+    },
+    enabled: !!user && !isDemoMode,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  useEffect(() => {
+    const remote = remotePrefsQuery.data;
+    if (remote) {
+      setPrefs({ ...DEFAULT_PREFS, ...remote });
     }
-  }, []);
+  }, [remotePrefsQuery.data]);
+
+  useEffect(() => {
+    const acks = remoteAcksQuery.data;
+    if (!acks || acks.length === 0) return;
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      for (const a of acks) if (a.read_at) next.add(a.alert_id);
+      return next;
+    });
+    setSentIds((prev) => {
+      const next = new Set(prev);
+      for (const a of acks) if (a.sent_at) next.add(a.alert_id);
+      return next;
+    });
+  }, [remoteAcksQuery.data]);
+
+  const savePrefs = useCallback(
+    async (next: AlertPreferences) => {
+      setPrefs(next);
+      try {
+        await AsyncStorage.setItem(PREFS_KEY, JSON.stringify(next));
+      } catch (e) {
+        console.log('[Alerts] prefs save error', e);
+      }
+      if (user && !isDemoMode) {
+        try {
+          const { error } = await supabase
+            .from('alert_preferences')
+            .upsert({ user_id: user.id, prefs: next, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+          if (error) console.log('[Alerts] remote prefs save error', error.message);
+          else void queryClient.invalidateQueries({ queryKey: ['alert_prefs_remote'] });
+        } catch (e) {
+          console.log('[Alerts] remote prefs save exception', e);
+        }
+      }
+    },
+    [user, isDemoMode, queryClient]
+  );
 
   const requestPermission = useCallback(async () => {
     const granted = await requestNotificationPermission();
@@ -370,8 +450,53 @@ export const [AlertsProvider, useAlerts] = createContextHook(() => {
       } catch (e) {
         console.log('[Alerts] sent persist error', e);
       }
+      if (user && !isDemoMode) {
+        try {
+          const nowIso = new Date().toISOString();
+          const rows = newOnes.map((a) => ({
+            user_id: user.id,
+            alert_id: a.id,
+            sent_at: nowIso,
+            vineyard_id: a.vineyardId,
+            category: a.category,
+          }));
+          const { error } = await supabase
+            .from('alert_acks')
+            .upsert(rows, { onConflict: 'user_id,alert_id' });
+          if (error) console.log('[Alerts] remote sent upsert error', error.message);
+        } catch (e) {
+          console.log('[Alerts] remote sent upsert exception', e);
+        }
+      }
     })();
-  }, [alerts, loaded, prefs.enabled, permissionGranted, sentIds]);
+  }, [alerts, loaded, prefs.enabled, permissionGranted, sentIds, user, isDemoMode]);
+
+  const persistReadRemote = useCallback(
+    async (ids: string[]) => {
+      if (!user || isDemoMode || ids.length === 0) return;
+      try {
+        const nowIso = new Date().toISOString();
+        const alertById = new Map(alerts.map((a) => [a.id, a]));
+        const rows = ids.map((id) => {
+          const a = alertById.get(id);
+          return {
+            user_id: user.id,
+            alert_id: id,
+            read_at: nowIso,
+            vineyard_id: a?.vineyardId ?? null,
+            category: a?.category ?? null,
+          };
+        });
+        const { error } = await supabase
+          .from('alert_acks')
+          .upsert(rows, { onConflict: 'user_id,alert_id' });
+        if (error) console.log('[Alerts] remote read upsert error', error.message);
+      } catch (e) {
+        console.log('[Alerts] remote read upsert exception', e);
+      }
+    },
+    [user, isDemoMode, alerts]
+  );
 
   const markRead = useCallback(
     async (id: string) => {
@@ -383,19 +508,22 @@ export const [AlertsProvider, useAlerts] = createContextHook(() => {
       } catch (e) {
         console.log('[Alerts] read persist error', e);
       }
+      await persistReadRemote([id]);
     },
-    [readIds]
+    [readIds, persistReadRemote]
   );
 
   const markAllRead = useCallback(async () => {
-    const next = new Set(alerts.map((a) => a.id));
+    const ids = alerts.map((a) => a.id);
+    const next = new Set(ids);
     setReadIds(next);
     try {
       await AsyncStorage.setItem(READ_KEY, JSON.stringify(Array.from(next)));
     } catch (e) {
       console.log('[Alerts] read persist error', e);
     }
-  }, [alerts]);
+    await persistReadRemote(ids);
+  }, [alerts, persistReadRemote]);
 
   const unreadCount = useMemo(
     () => alerts.filter((a) => !readIds.has(a.id)).length,

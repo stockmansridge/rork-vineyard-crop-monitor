@@ -659,3 +659,136 @@ begin
       check (role in ('owner','manager','worker'));
   end if;
 end $;
+
+-- 17. Alert preferences (one row per user, synced across devices)
+create table if not exists public.alert_preferences (
+  user_id uuid references auth.users on delete cascade primary key,
+  prefs jsonb not null,
+  updated_at timestamptz default now()
+);
+
+alter table public.alert_preferences enable row level security;
+
+create policy "Users manage own alert prefs"
+  on public.alert_preferences for all
+  using (auth.uid() = user_id);
+
+drop trigger if exists alert_preferences_updated_at on public.alert_preferences;
+create trigger alert_preferences_updated_at
+  before update on public.alert_preferences
+  for each row execute function public.update_updated_at();
+
+-- 18. Alert acknowledgements (read/sent/dismissed state per alert id per user)
+create table if not exists public.alert_acks (
+  user_id uuid references auth.users on delete cascade not null,
+  alert_id text not null,
+  read_at timestamptz,
+  sent_at timestamptz,
+  dismissed_at timestamptz,
+  vineyard_id uuid references public.vineyards on delete set null,
+  category text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  primary key (user_id, alert_id)
+);
+
+create index if not exists idx_alert_acks_user on public.alert_acks (user_id, updated_at desc);
+
+alter table public.alert_acks enable row level security;
+
+create policy "Users manage own alert acks"
+  on public.alert_acks for all
+  using (auth.uid() = user_id);
+
+drop trigger if exists alert_acks_updated_at on public.alert_acks;
+create trigger alert_acks_updated_at
+  before update on public.alert_acks
+  for each row execute function public.update_updated_at();
+
+-- 19. Weather station selection per user (synced across devices)
+create table if not exists public.user_weather_station (
+  user_id uuid references auth.users on delete cascade primary key,
+  station_id text,
+  station_name text,
+  latitude numeric,
+  longitude numeric,
+  updated_at timestamptz default now()
+);
+
+alter table public.user_weather_station enable row level security;
+
+create policy "Users manage own weather station"
+  on public.user_weather_station for all
+  using (auth.uid() = user_id);
+
+drop trigger if exists user_weather_station_updated_at on public.user_weather_station;
+create trigger user_weather_station_updated_at
+  before update on public.user_weather_station
+  for each row execute function public.update_updated_at();
+
+-- 20. Audit fields on operational tables
+alter table public.scout_tasks
+  add column if not exists created_by uuid references auth.users on delete set null,
+  add column if not exists updated_by uuid references auth.users on delete set null,
+  add column if not exists source_inputs jsonb;
+
+alter table public.vineyard_tasks
+  add column if not exists created_by uuid references auth.users on delete set null,
+  add column if not exists updated_by uuid references auth.users on delete set null,
+  add column if not exists source_inputs jsonb;
+
+alter table public.phenology_events
+  add column if not exists created_by uuid references auth.users on delete set null;
+
+alter table public.spray_records
+  add column if not exists created_by uuid references auth.users on delete set null,
+  add column if not exists updated_by uuid references auth.users on delete set null;
+
+alter table public.harvest_records
+  add column if not exists created_by uuid references auth.users on delete set null,
+  add column if not exists updated_by uuid references auth.users on delete set null;
+
+-- 21. Recommendation acknowledgements (synced across devices/users)
+create table if not exists public.recommendation_acks (
+  id uuid default gen_random_uuid() primary key,
+  vineyard_id uuid references public.vineyards on delete cascade not null,
+  owner_id uuid references auth.users on delete cascade not null,
+  rec_id text not null,
+  acknowledged_by uuid references auth.users on delete set null,
+  acknowledged_at timestamptz default now(),
+  note text,
+  source_inputs jsonb,
+  created_at timestamptz default now(),
+  unique (vineyard_id, rec_id)
+);
+
+create index if not exists idx_rec_acks_vineyard on public.recommendation_acks (vineyard_id, acknowledged_at desc);
+
+alter table public.recommendation_acks enable row level security;
+
+create policy "Owners manage their rec acks"
+  on public.recommendation_acks for all
+  using (auth.uid() = owner_id);
+
+create policy "Shared users view rec acks"
+  on public.recommendation_acks for select
+  using (
+    exists (
+      select 1 from public.vineyard_shares
+      where vineyard_shares.vineyard_id = recommendation_acks.vineyard_id
+      and vineyard_shares.shared_with_id = auth.uid()
+      and vineyard_shares.status = 'accepted'
+    )
+  );
+
+create policy "Shared editors can insert rec acks"
+  on public.recommendation_acks for insert
+  with check (
+    exists (
+      select 1 from public.vineyard_shares
+      where vineyard_shares.vineyard_id = recommendation_acks.vineyard_id
+      and vineyard_shares.shared_with_id = auth.uid()
+      and vineyard_shares.status = 'accepted'
+      and vineyard_shares.permission = 'edit'
+    )
+  );
