@@ -51,7 +51,7 @@ function flagStyle(trust: DataTrust) {
 }
 
 function sourceIcon(trust: DataTrust) {
-  const name = trust.sourceName.toLowerCase();
+  const name = (trust.sourceName ?? '').toLowerCase();
   if (name.includes('sentinel') || name.includes('planet') || name.includes('satellite')) {
     return SatIcon;
   }
