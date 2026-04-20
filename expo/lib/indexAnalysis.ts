@@ -197,6 +197,14 @@ function narrativePieces(
     }
   }
 
+  if (conservative) {
+    parts.push(
+      quality.quality === 'stale'
+        ? 'Scene is past its useful window — treat as advisory only.'
+        : 'Scene quality is limited — signal strength reduced.'
+    );
+  }
+
   // Headline
   let headline = `${blockName}: ${indexLabel} ${latest.toFixed(2)}`;
   if (scene?.significant && scene.direction === 'down') {
@@ -285,6 +293,12 @@ export function analyzeIndexSeries(input: AnalyzeInput): IndexAnalysis {
     anomaly += Math.min(1, Math.abs(peerDelta.value) / (threshold * 4)) * 0.25;
   }
   anomaly = Math.max(0, Math.min(1, anomaly));
+
+  // Dampen anomaly score when scene quality is poor/stale/simulated so bad imagery
+  // never drives strong 'needs scouting' signals.
+  if (quality.quality === 'poor') anomaly *= 0.5;
+  if (quality.quality === 'stale') anomaly *= 0.35;
+  if (quality.quality === 'none') anomaly = 0;
 
   const confidence: IndexAnalysis['confidence'] =
     quality.quality === 'good'

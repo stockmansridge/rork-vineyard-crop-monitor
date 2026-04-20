@@ -109,6 +109,25 @@ export default function IndexAnalysisCard({ analysis, compact }: Props) {
         )}
       </View>
 
+      {analysis.trendDirection !== 'unknown' ? (
+        <View style={styles.trendRow}>
+          {analysis.trendDirection === 'rising' ? (
+            <TrendingUp size={12} color={Colors.primary} />
+          ) : analysis.trendDirection === 'declining' ? (
+            <TrendingDown size={12} color={Colors.danger} />
+          ) : (
+            <Minus size={12} color={Colors.textMuted} />
+          )}
+          <Text style={styles.trendText}>
+            {analysis.trendDirection === 'rising'
+              ? 'Trend: rising over recent scenes'
+              : analysis.trendDirection === 'declining'
+              ? 'Trend: declining over recent scenes'
+              : 'Trend: stable over recent scenes'}
+          </Text>
+        </View>
+      ) : null}
+
       <View style={[styles.qualityRow, { borderColor: qualityTone + '30', backgroundColor: qualityTone + '12' }]}>
         <Cloud size={13} color={qualityTone} />
         <View style={{ flex: 1 }}>
@@ -243,5 +262,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '500' as const,
+  },
+  trendRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+  },
+  trendText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '600' as const,
   },
 });

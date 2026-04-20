@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Satellite, Inbox, Users, AlertTriangle } from 'lucide-react-native';
+import { Satellite, Inbox, Users, AlertTriangle, ShieldCheck, CloudOff } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import DataTrustBadge from '@/components/DataTrustBadge';
 import { demoTrust, evaluateTrust } from '@/lib/dataTrust';
@@ -109,7 +109,9 @@ export default function IndicesScreen() {
     return out;
   }, [vineyards, readings, active, indexType, isDemoMode]);
 
-  const needsAttention = blockAnalyses.filter((b) => b.analysis.anomalyScore > 0.25).length;
+  const decisionGrade = blockAnalyses.filter((b) => b.analysis.isDecisionGrade);
+  const advisoryOnly = blockAnalyses.filter((b) => !b.analysis.isDecisionGrade);
+  const needsAttention = decisionGrade.filter((b) => b.analysis.anomalyScore > 0.25).length;
 
   return (
     <ScrollView
@@ -180,9 +182,9 @@ export default function IndicesScreen() {
         <>
           <View style={styles.summaryRow}>
             <View style={styles.summaryCell}>
-              <Users size={14} color={Colors.info} />
-              <Text style={styles.summaryValue}>{blockAnalyses.length}</Text>
-              <Text style={styles.summaryLabel}>Blocks compared</Text>
+              <ShieldCheck size={14} color={Colors.primary} />
+              <Text style={styles.summaryValue}>{decisionGrade.length}</Text>
+              <Text style={styles.summaryLabel}>Decision-grade</Text>
             </View>
             <View
               style={[
@@ -201,27 +203,80 @@ export default function IndicesScreen() {
               </Text>
               <Text style={styles.summaryLabel}>Need scouting</Text>
             </View>
+            <View style={styles.summaryCell}>
+              <CloudOff size={14} color={Colors.textMuted} />
+              <Text style={styles.summaryValue}>{advisoryOnly.length}</Text>
+              <Text style={styles.summaryLabel}>Advisory only</Text>
+            </View>
           </View>
 
-          {blockAnalyses.map((b) => (
-            <Pressable
-              key={b.vineyardId}
-              onPress={() =>
-                router.push({ pathname: '/field-detail', params: { id: b.vineyardId } })
-              }
-              style={({ pressed }) => [styles.blockCard, pressed && styles.pressed]}
-            >
-              <View style={styles.blockHeader}>
-                <Text style={styles.blockName} numberOfLines={1}>
-                  {b.name}
-                </Text>
-                <Text style={styles.blockValue}>
-                  {(b.analysis.latest?.value ?? 0).toFixed(2)}
+          {decisionGrade.length > 0 && (
+            <>
+              <View style={styles.sectionHeader}>
+                <ShieldCheck size={13} color={Colors.primary} />
+                <Text style={styles.sectionHeaderText}>Decision-grade imagery</Text>
+              </View>
+              {decisionGrade.map((b) => (
+                <Pressable
+                  key={b.vineyardId}
+                  onPress={() =>
+                    router.push({ pathname: '/field-detail', params: { id: b.vineyardId } })
+                  }
+                  style={({ pressed }) => [styles.blockCard, pressed && styles.pressed]}
+                  testID={`index-block-${b.vineyardId}`}
+                >
+                  <View style={styles.blockHeader}>
+                    <Text style={styles.blockName} numberOfLines={1}>
+                      {b.name}
+                    </Text>
+                    <Text style={styles.blockValue}>
+                      {(b.analysis.latest?.value ?? 0).toFixed(2)}
+                    </Text>
+                  </View>
+                  <IndexAnalysisCard analysis={b.analysis} compact />
+                </Pressable>
+              ))}
+            </>
+          )}
+
+          {advisoryOnly.length > 0 && (
+            <>
+              <View style={[styles.sectionHeader, { marginTop: decisionGrade.length > 0 ? 12 : 0 }]}>
+                <CloudOff size={13} color={Colors.textMuted} />
+                <Text style={[styles.sectionHeaderText, { color: Colors.textSecondary }]}>
+                  Advisory only · stale, cloudy, or fallback scenes
                 </Text>
               </View>
-              <IndexAnalysisCard analysis={b.analysis} compact />
-            </Pressable>
-          ))}
+              <Text style={styles.sectionNote}>
+                These blocks have imagery but it’s not reliable enough to drive action.
+                Use for context only until a cleaner scene arrives.
+              </Text>
+              {advisoryOnly.map((b) => (
+                <Pressable
+                  key={b.vineyardId}
+                  onPress={() =>
+                    router.push({ pathname: '/field-detail', params: { id: b.vineyardId } })
+                  }
+                  style={({ pressed }) => [
+                    styles.blockCard,
+                    styles.blockCardAdvisory,
+                    pressed && styles.pressed,
+                  ]}
+                  testID={`index-block-${b.vineyardId}`}
+                >
+                  <View style={styles.blockHeader}>
+                    <Text style={styles.blockName} numberOfLines={1}>
+                      {b.name}
+                    </Text>
+                    <Text style={[styles.blockValue, { color: Colors.textSecondary }]}>
+                      {(b.analysis.latest?.value ?? 0).toFixed(2)}
+                    </Text>
+                  </View>
+                  <IndexAnalysisCard analysis={b.analysis} compact />
+                </Pressable>
+              ))}
+            </>
+          )}
         </>
       )}
 
@@ -378,5 +433,29 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 20,
+  },
+  sectionHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  sectionHeaderText: {
+    color: Colors.primary,
+    fontSize: 12,
+    fontWeight: '800' as const,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase' as const,
+  },
+  sectionNote: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    marginBottom: 10,
+  },
+  blockCardAdvisory: {
+    opacity: 0.85,
+    borderStyle: 'dashed' as const,
   },
 });
