@@ -18,6 +18,9 @@ import { demoTrust, evaluateTrust } from '@/lib/dataTrust';
 import { useBlockSeasons } from '@/providers/BlockSeasonsProvider';
 import IrrigationCard from '@/components/IrrigationCard';
 import { useIrrigation } from '@/hooks/useIrrigation';
+import WeatherDecisionsCard from '@/components/WeatherDecisionsCard';
+import { useForecast } from '@/hooks/useForecast';
+import { assessAll } from '@/lib/weatherDecisions';
 
 export default function FieldDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -54,6 +57,8 @@ export default function FieldDetailScreen() {
   const fieldProbes = soilProbes.filter(p => p.vineyardId === vineyard.id);
   const weather = useWeather(vineyard.latitude, vineyard.longitude);
   const irrigation = useIrrigation(vineyard);
+  const forecastQ = useForecast(vineyard.latitude, vineyard.longitude);
+  const decisions = assessAll(forecastQ.data ?? null, vineyard, { isDemo: isDemoMode });
   const plantYear = vineyard.planting_date ? new Date(vineyard.planting_date).getFullYear() : null;
   const age = plantYear ? new Date().getFullYear() - plantYear : null;
 
@@ -314,6 +319,8 @@ export default function FieldDetailScreen() {
           latitude={vineyard.latitude}
           longitude={vineyard.longitude}
         />
+
+        <WeatherDecisionsCard decisions={decisions} />
 
         <IrrigationCard
           recommendation={irrigation.recommendation}

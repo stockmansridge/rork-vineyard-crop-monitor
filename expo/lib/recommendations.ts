@@ -2,6 +2,7 @@ import type { WeatherForecast } from '@/lib/weather';
 import type { DbVineyard } from '@/providers/VineyardProvider';
 import { isStale, type DataTrust } from '@/lib/dataTrust';
 import { computeIrrigation, toRecommendation as irrigationToRec } from '@/lib/irrigation';
+import { assessSpray, assessFrost, assessDisease } from '@/lib/weatherDecisions';
 
 export type RecommendationKind =
   | 'inspect'
@@ -123,33 +124,38 @@ export function computeRecommendations(
       const tomorrow = f.days[1];
       const next3 = f.days.slice(0, 3);
 
-      // Frost overnight
-      if (today && today.tMin <= t.frostTempC) {
+      // Frost (block-aware)
+      const frostA = assessFrost(f, v, {
+        frostTempC: t.frostTempC,
+        isDemo: input.isDemoMode,
+        currentHumidity: f.current?.humidity ?? null,
+      });
+      if (frostA.status === 'critical' || frostA.status === 'elevated') {
         out.push({
-          id: `frost-${v.id}-${today.date}`,
+          id: `frost-${v.id}-${frostA.coldestNight?.date ?? 'na'}`,
           kind: 'frost-watch',
-          priority: 'critical',
-          confidence: 'high',
-          title: `Frost watch tonight · ${v.name}`,
-          reason: `Forecast low ${today.tMin.toFixed(1)}°C. Prepare frost protection before dusk.`,
+          priority: frostA.status === 'critical' ? 'critical' : 'high',
+          confidence: frostA.confidence,
+          title: `${frostA.headline} · ${v.name}`,
+          reason: frostA.reasons.map((r) => r.label).join(' · ') || 'Overnight frost risk.',
           vineyardId: v.id,
           vineyardName: v.name,
-          timestamp: today.date,
+          timestamp: frostA.coldestNight?.date ?? today?.date ?? now,
           action: { label: 'Open block', route: `/field-detail?id=${v.id}` },
-          trustNote: 'Open-Meteo forecast · advisory',
+          trustNote: 'Forecast-derived · advisory',
         });
-      } else if (tomorrow && tomorrow.tMin <= t.frostTempC + 1) {
+      } else if (frostA.status === 'watch') {
         out.push({
-          id: `frost-soon-${v.id}-${tomorrow.date}`,
+          id: `frost-watch-${v.id}-${frostA.coldestNight?.date ?? 'na'}`,
           kind: 'frost-watch',
-          priority: 'high',
-          confidence: 'medium',
-          title: `Frost risk approaching · ${v.name}`,
-          reason: `Forecast low ${tomorrow.tMin.toFixed(1)}°C on ${tomorrow.date}.`,
+          priority: 'medium',
+          confidence: frostA.confidence,
+          title: `Frost watch · ${v.name}`,
+          reason: frostA.reasons.map((r) => r.label).join(' · '),
           vineyardId: v.id,
           vineyardName: v.name,
-          timestamp: tomorrow.date,
-          trustNote: 'Open-Meteo forecast · advisory',
+          timestamp: frostA.coldestNight?.date ?? today?.date ?? now,
+          trustNote: 'Forecast-derived · advisory',
         });
       }
 
@@ -170,38 +176,55 @@ export function computeRecommendations(
         });
       }
 
-      // Spray window (today)
+      // Spray suitability
       if (today) {
-        const windy = today.windSpeedMax >= t.windSprayMaxKmh;
-        const rainSoon = today.precipitation >= t.rainHoldMm || today.precipProbability >= 60;
-        if (windy || rainSoon) {
-          const reasons: string[] = [];
-          if (windy) reasons.push(`winds ${today.windSpeedMax.toFixed(0)} km/h`);
-          if (rainSoon) reasons.push(`${today.precipitation.toFixed(0)}mm rain likely (${today.precipProbability}%)`);
+        const sprayA = assessSpray(f, { isDemo: input.isDemoMode });
+        if (sprayA.status === 'not-suitable') {
           out.push({
             id: `avoid-spray-${v.id}-${today.date}`,
             kind: 'avoid-spray',
             priority: 'high',
-            confidence: 'medium',
+            confidence: sprayA.confidence,
             title: `Avoid spraying today · ${v.name}`,
-            reason: `Poor spray conditions: ${reasons.join(' · ')}.`,
+            reason:
+              sprayA.reasons
+                .filter((r) => r.impact === 'negative')
+                .map((r) => r.label)
+                .join(' · ') +
+              (sprayA.nextWindow ? ` · Next window ${sprayA.nextWindow.label}` : ''),
             vineyardId: v.id,
             vineyardName: v.name,
             timestamp: today.date,
-            trustNote: 'Open-Meteo forecast · advisory',
+            trustNote: 'Forecast-derived · advisory',
           });
-        } else if (today.windSpeedMax < 12 && today.precipProbability < 20) {
+        } else if (sprayA.status === 'caution') {
+          out.push({
+            id: `spray-caution-${v.id}-${today.date}`,
+            kind: 'avoid-spray',
+            priority: 'medium',
+            confidence: sprayA.confidence,
+            title: `Spray with caution · ${v.name}`,
+            reason: sprayA.reasons.map((r) => r.label).join(' · '),
+            vineyardId: v.id,
+            vineyardName: v.name,
+            timestamp: today.date,
+            trustNote: 'Forecast-derived · advisory',
+          });
+        } else if (sprayA.status === 'suitable') {
           out.push({
             id: `spray-ok-${v.id}-${today.date}`,
             kind: 'spray-ok',
             priority: 'low',
-            confidence: 'medium',
+            confidence: sprayA.confidence,
             title: `Good spray window · ${v.name}`,
-            reason: `Low wind (${today.windSpeedMax.toFixed(0)} km/h) and dry conditions today.`,
+            reason: sprayA.reasons
+              .filter((r) => r.impact === 'positive')
+              .map((r) => r.label)
+              .join(' · '),
             vineyardId: v.id,
             vineyardName: v.name,
             timestamp: today.date,
-            trustNote: 'Open-Meteo forecast · advisory',
+            trustNote: 'Forecast-derived · advisory',
           });
         }
       }
@@ -221,22 +244,34 @@ export function computeRecommendations(
       const irrRec = irrigationToRec(irr);
       if (irrRec) out.push(irrRec);
 
-      // Powdery mildew risk
-      const wet = next3.filter((d) => d.precipitation >= 2 || d.precipProbability >= 60).length;
-      const warm = next3.filter((d) => d.tMax >= 20 && d.tMax <= 30).length;
-      if (wet >= 2 && warm >= 2 && v.disease_prone !== false) {
+      // Disease-supportive conditions
+      const diseaseA = assessDisease(f, v, f.current ?? null, { isDemo: input.isDemoMode });
+      if (diseaseA.status === 'inspect' || diseaseA.status === 'elevated') {
         out.push({
-          id: `pm-${v.id}`,
+          id: `disease-${v.id}`,
           kind: 'disease-risk',
-          priority: v.disease_prone ? 'high' : 'medium',
-          confidence: 'medium',
-          title: `Powdery mildew pressure · ${v.name}`,
-          reason: `Warm, wet 3-day window forecast.${v.disease_prone ? ' This block is flagged disease-prone.' : ''}`,
+          priority: diseaseA.status === 'inspect' ? 'high' : 'medium',
+          confidence: diseaseA.confidence,
+          title: `${diseaseA.headline} · ${v.name}`,
+          reason: diseaseA.reasons.map((r) => r.label).join(' · '),
           vineyardId: v.id,
           vineyardName: v.name,
           timestamp: now,
           action: { label: 'Open block', route: `/field-detail?id=${v.id}` },
-          trustNote: 'Forecast-derived pressure index · advisory',
+          trustNote: 'Generic disease-supportive proxy · advisory',
+        });
+      } else if (diseaseA.status === 'monitor' && next3.length > 0) {
+        out.push({
+          id: `disease-monitor-${v.id}`,
+          kind: 'disease-risk',
+          priority: 'low',
+          confidence: diseaseA.confidence,
+          title: `Monitor disease conditions · ${v.name}`,
+          reason: diseaseA.reasons.map((r) => r.label).join(' · '),
+          vineyardId: v.id,
+          vineyardName: v.name,
+          timestamp: now,
+          trustNote: 'Generic disease-supportive proxy · advisory',
         });
       }
 
