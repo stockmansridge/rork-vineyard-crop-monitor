@@ -4,6 +4,9 @@ import { Stack, useRouter } from 'expo-router';
 import { AlertTriangle, AlertCircle, Info, BellOff, Settings as SettingsIcon, CheckCheck } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useAlerts, ComputedAlert } from '@/providers/AlertsProvider';
+import DataTrustBadge from '@/components/DataTrustBadge';
+import { evaluateTrust } from '@/lib/dataTrust';
+import type { DataKind } from '@/lib/dataTrust';
 
 function severityConfig(sev: ComputedAlert['severity']) {
   switch (sev) {
@@ -101,6 +104,32 @@ export default function AlertsScreen() {
                     <Text style={styles.vineyard}>{a.vineyardName}</Text>
                     <Text style={styles.time}>{timeAgo(a.timestamp)}</Text>
                   </View>
+                  <View style={styles.trustRow}>
+                    <DataTrustBadge
+                      trust={evaluateTrust({
+                        sourceType: a.category === 'frost' || a.category === 'heat' || a.category === 'rain' || a.category === 'disease'
+                          ? 'derived'
+                          : 'observed',
+                        sourceName: a.category === 'frost' || a.category === 'heat' || a.category === 'rain' || a.category === 'disease'
+                          ? 'Open-Meteo forecast model'
+                          : `Probe reading · ${a.vineyardName}`,
+                        observedAt: a.timestamp,
+                        scopeType: a.category === 'frost' || a.category === 'heat' || a.category === 'rain' || a.category === 'disease'
+                          ? 'vineyard'
+                          : 'probe',
+                        methodVersion: 'alerts-v1',
+                        kind: (a.category === 'frost' || a.category === 'heat' || a.category === 'rain'
+                          ? 'weather-forecast'
+                          : a.category === 'disease'
+                          ? 'disease'
+                          : 'probe') as DataKind,
+                        note: a.category === 'disease'
+                          ? 'Disease risk is modelled from forecast inputs. Treat as advisory.'
+                          : undefined,
+                      })}
+                      compact
+                    />
+                  </View>
                 </View>
               </Pressable>
             );
@@ -142,6 +171,7 @@ const styles = StyleSheet.create({
   footer: { flexDirection: 'row' as const, justifyContent: 'space-between' as const, marginTop: 6 },
   vineyard: { color: Colors.textMuted, fontSize: 11, fontWeight: '500' as const },
   time: { color: Colors.textMuted, fontSize: 11 },
+  trustRow: { flexDirection: 'row' as const, marginTop: 8 },
   empty: {
     alignItems: 'center' as const,
     padding: 40,

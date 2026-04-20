@@ -8,6 +8,8 @@ import { satelliteIndices as demoIndices } from '@/mocks/indices';
 import { SatelliteIndex } from '@/types';
 import { useAuth } from '@/providers/AuthProvider';
 import { Inbox } from 'lucide-react-native';
+import DataTrustBadge from '@/components/DataTrustBadge';
+import { demoTrust, evaluateTrust } from '@/lib/dataTrust';
 
 function getStatusColor(status: SatelliteIndex['status']) {
   switch (status) {
@@ -46,6 +48,22 @@ export default function IndicesScreen() {
             Data sourced from Sentinel-2 Level-2A via Copernicus Data Space STAC API.
             Indices computed from bottom-of-atmosphere corrected reflectance bands.
           </Text>
+          <View style={styles.infoTrust}>
+            <DataTrustBadge
+              trust={
+                isDemoMode
+                  ? demoTrust('Demo satellite indices', 'vineyard')
+                  : evaluateTrust({
+                      sourceType: 'derived',
+                      sourceName: 'Sentinel-2 L2A · Copernicus',
+                      observedAt: new Date().toISOString(),
+                      scopeType: 'vineyard',
+                      methodVersion: 'indices-v1',
+                      kind: 'satellite',
+                    })
+              }
+            />
+          </View>
         </View>
       </View>
 
@@ -97,6 +115,12 @@ export default function IndicesScreen() {
               <Text style={styles.updated}>
                 Updated {new Date(idx.lastUpdated).toLocaleDateString()}
               </Text>
+            </View>
+            <View style={styles.cardTrust}>
+              <DataTrustBadge
+                trust={demoTrust(`Demo ${idx.abbreviation}`, 'vineyard')}
+                compact
+              />
             </View>
           </Pressable>
         );
@@ -253,5 +277,13 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 13,
     textAlign: 'center' as const,
+  },
+  infoTrust: {
+    marginTop: 10,
+    flexDirection: 'row' as const,
+  },
+  cardTrust: {
+    marginTop: 8,
+    flexDirection: 'row' as const,
   },
 });

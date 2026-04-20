@@ -6,6 +6,8 @@ import { Stack } from 'expo-router';
 import Colors from '@/constants/colors';
 import { soilProbes as demoProbes } from '@/mocks/soilProbes';
 import { useAuth } from '@/providers/AuthProvider';
+import DataTrustBadge from '@/components/DataTrustBadge';
+import { demoTrust, evaluateTrust } from '@/lib/dataTrust';
 
 export default function SoilScreen() {
   const router = useRouter();
@@ -65,6 +67,15 @@ export default function SoilScreen() {
               <Plus size={16} color={Colors.background} />
               <Text style={styles.emptyBtnText}>Add Probe</Text>
             </Pressable>
+          </View>
+        )}
+
+        {isDemoMode && soilProbes.length > 0 && (
+          <View style={styles.trustBanner}>
+            <DataTrustBadge trust={demoTrust('Demo soil probes', 'probe')} />
+            <Text style={styles.trustBannerText}>
+              Demo probes shown for preview. Add your own probes to see real readings.
+            </Text>
           </View>
         )}
 
@@ -137,6 +148,22 @@ export default function SoilScreen() {
                 <Text style={styles.nutrientValue}>{probe.readings.potassium}</Text>
               </View>
               <Text style={styles.nutrientUnit}>mg/kg</Text>
+            </View>
+            <View style={styles.probeTrustRow}>
+              <DataTrustBadge
+                trust={
+                  isDemoMode
+                    ? demoTrust(`Demo probe: ${probe.name}`, 'probe')
+                    : evaluateTrust({
+                        sourceType: 'observed',
+                        sourceName: `Soil probe: ${probe.name}`,
+                        observedAt: probe.lastReading,
+                        scopeType: 'probe',
+                        methodVersion: 'probe-v1',
+                        kind: 'probe',
+                      })
+                }
+              />
             </View>
           </Pressable>
         ))}
@@ -327,5 +354,26 @@ const styles = StyleSheet.create({
     color: Colors.background,
     fontSize: 14,
     fontWeight: '700' as const,
+  },
+  trustBanner: {
+    backgroundColor: Colors.secondaryMuted,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: Colors.secondary + '30',
+    marginBottom: 12,
+    gap: 8,
+  },
+  trustBannerText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  probeTrustRow: {
+    flexDirection: 'row' as const,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.cardBorder,
   },
 });

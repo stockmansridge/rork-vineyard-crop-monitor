@@ -13,6 +13,8 @@ import { useWeather } from '@/hooks/useWeather';
 import NdviTrendSection from '@/components/NdviTrendSection';
 import ForecastSection from '@/components/ForecastSection';
 import { useRecords } from '@/providers/RecordsProvider';
+import DataTrustBadge from '@/components/DataTrustBadge';
+import { demoTrust, evaluateTrust } from '@/lib/dataTrust';
 
 export default function FieldDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -148,6 +150,11 @@ export default function FieldDetailScreen() {
             <Satellite size={16} color={Colors.sentinel} />
             <Text style={styles.sectionTitle}>Latest Indices</Text>
           </View>
+          {isDemoMode && satelliteIndices.length > 0 && (
+            <View style={styles.sectionTrust}>
+              <DataTrustBadge trust={demoTrust('Demo indices', 'vineyard')} compact />
+            </View>
+          )}
           {satelliteIndices.slice(0, 4).map((idx) => (
             <View key={idx.id} style={styles.indexRow}>
               <View style={[styles.indexDot, { backgroundColor: idx.color }]} />
@@ -257,6 +264,18 @@ export default function FieldDetailScreen() {
               <Text style={styles.gddHeroCaption}>
                 Season total since {new Date(weather.data.seasonStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · base 10°C
               </Text>
+              <View style={styles.sectionTrust}>
+                <DataTrustBadge
+                  trust={evaluateTrust({
+                    sourceType: weather.data.sourceType,
+                    sourceName: weather.data.sourceName,
+                    observedAt: weather.data.observedAt,
+                    scopeType: 'vineyard',
+                    methodVersion: 'gdd-v1',
+                    kind: 'weather-history',
+                  })}
+                />
+              </View>
               <View style={styles.gddGrid}>
                 <View style={styles.gddCell}>
                   <Flame size={14} color={Colors.warning} />
@@ -317,6 +336,22 @@ export default function FieldDetailScreen() {
                 </View>
               </View>
             ))}
+            <View style={styles.sectionTrust}>
+              <DataTrustBadge
+                trust={
+                  isDemoMode
+                    ? demoTrust('Demo soil probes', 'probe')
+                    : evaluateTrust({
+                        sourceType: 'observed',
+                        sourceName: 'Soil probes',
+                        observedAt: fieldProbes[0]?.lastReading ?? null,
+                        scopeType: 'probe',
+                        methodVersion: 'probe-v1',
+                        kind: 'probe',
+                      })
+                }
+              />
+            </View>
           </View>
         )}
 
@@ -690,5 +725,12 @@ const styles = StyleSheet.create({
     color: Colors.background,
     fontSize: 14,
     fontWeight: '700' as const,
+  },
+  sectionTrust: {
+    flexDirection: 'row' as const,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.cardBorder,
   },
 });

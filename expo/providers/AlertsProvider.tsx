@@ -12,6 +12,7 @@ import { useVineyards } from './VineyardProvider';
 import { fetchForecast, WeatherForecast } from '@/lib/weather';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from './AuthProvider';
+import { isStale } from '@/lib/dataTrust';
 
 export type AlertSeverity = 'danger' | 'warning' | 'info';
 export type AlertCategory =
@@ -260,6 +261,21 @@ export const [AlertsProvider, useAlerts] = createContextHook(() => {
     for (const p of probes) {
       const vy = vineyards.find((v) => v.id === p.vineyard_id);
       const vName = vy?.name ?? p.name;
+
+      const probeStale = isStale('probe', p.last_reading);
+      if (probeStale) {
+        out.push({
+          id: `stale-${p.id}`,
+          severity: 'info',
+          category: 'offline',
+          title: 'Probe Data Stale',
+          message: `${p.name} has not reported in over 12h. Readings may not reflect current field conditions.`,
+          vineyardId: p.vineyard_id,
+          vineyardName: vName,
+          timestamp: p.last_reading,
+        });
+        continue;
+      }
 
       if (prefs.moisture && p.moisture != null) {
         if (p.moisture < t.lowMoisturePct) {

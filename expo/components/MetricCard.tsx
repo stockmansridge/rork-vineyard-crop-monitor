@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import Colors from '@/constants/colors';
+import DataTrustBadge from '@/components/DataTrustBadge';
+import type { DataTrust } from '@/lib/dataTrust';
 
 interface MetricCardProps {
   label: string;
@@ -9,9 +11,11 @@ interface MetricCardProps {
   icon: React.ReactNode;
   color?: string;
   onPress?: () => void;
+  trust?: DataTrust;
 }
 
-export default function MetricCard({ label, value, unit, icon, color = Colors.primary, onPress }: MetricCardProps) {
+export default function MetricCard({ label, value, unit, icon, color = Colors.primary, onPress, trust }: MetricCardProps) {
+  const dim = trust && (trust.qualityFlag === 'demo' || trust.qualityFlag === 'stale' || trust.qualityFlag === 'low');
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && onPress ? styles.pressed : null]}
@@ -21,11 +25,16 @@ export default function MetricCard({ label, value, unit, icon, color = Colors.pr
       <View style={[styles.iconContainer, { backgroundColor: color + '18' }]}>
         {icon}
       </View>
-      <Text style={styles.value} numberOfLines={1}>
+      <Text style={[styles.value, dim && styles.valueDim]} numberOfLines={1}>
         {value}
         {unit ? <Text style={styles.unit}> {unit}</Text> : null}
       </Text>
       <Text style={styles.label} numberOfLines={1}>{label}</Text>
+      {trust ? (
+        <View style={styles.trustRow}>
+          <DataTrustBadge trust={trust} compact showTimestamp={false} />
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -67,5 +76,12 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 12,
     fontWeight: '500' as const,
+  },
+  valueDim: {
+    opacity: 0.75,
+  },
+  trustRow: {
+    marginTop: 6,
+    flexDirection: 'row' as const,
   },
 });

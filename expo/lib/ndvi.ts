@@ -6,6 +6,7 @@ export interface NdviSample {
   source: 'sentinel-2' | 'planet';
   sceneId?: string;
   cloudCover?: number;
+  sourceType?: 'derived' | 'simulated';
 }
 
 function polygonBbox(polygon: PolygonPoint[]): [number, number, number, number] {
@@ -190,8 +191,10 @@ export async function fetchSentinel2NdviSeries(
 
   for (const it of picked) {
     let value = await fetchNdviMeanForItem(it, polygon);
+    let sourceType: 'derived' | 'simulated' = 'derived';
     if (value == null) {
       value = simulateNdviForItem(it, polygon);
+      sourceType = 'simulated';
     }
     samples.push({
       acquiredAt: it.properties.datetime ?? now.toISOString(),
@@ -199,6 +202,7 @@ export async function fetchSentinel2NdviSeries(
       source: 'sentinel-2',
       sceneId: it.id,
       cloudCover: it.properties['eo:cloud_cover'],
+      sourceType,
     });
   }
 

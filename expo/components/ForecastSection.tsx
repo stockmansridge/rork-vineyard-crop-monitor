@@ -4,6 +4,8 @@ import { CloudSun, AlertTriangle, Wind, Droplet, Thermometer } from 'lucide-reac
 import Colors from '@/constants/colors';
 import { useForecast } from '@/hooks/useForecast';
 import { weatherCodeToDescription } from '@/lib/weather';
+import DataTrustBadge from '@/components/DataTrustBadge';
+import { evaluateTrust } from '@/lib/dataTrust';
 
 interface Props {
   latitude: number | null;
@@ -29,6 +31,19 @@ export default function ForecastSection({ latitude, longitude }: Props) {
         <Text style={styles.errorText}>Unable to load forecast</Text>
       ) : data ? (
         <>
+          <View style={styles.trustTop}>
+            <DataTrustBadge
+              trust={evaluateTrust({
+                sourceType: data.sourceType,
+                sourceName: data.sourceName,
+                observedAt: data.current?.time ?? data.fetchedAt,
+                scopeType: 'vineyard',
+                methodVersion: 'forecast-v1',
+                kind: 'weather-forecast',
+                note: 'Forecast values are model-derived and should be treated as advisory.',
+              })}
+            />
+          </View>
           {data.frostRisk && data.nextFrostDate && (
             <View style={styles.frostBanner}>
               <AlertTriangle size={14} color={Colors.warning} />
@@ -244,5 +259,9 @@ const styles = StyleSheet.create({
     color: Colors.info,
     fontSize: 9,
     fontWeight: '700' as const,
+  },
+  trustTop: {
+    flexDirection: 'row' as const,
+    marginBottom: 10,
   },
 });

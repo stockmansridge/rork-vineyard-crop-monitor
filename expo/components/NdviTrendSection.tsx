@@ -6,6 +6,8 @@ import SeriesChart, { SeriesPoint } from '@/components/SeriesChart';
 import { useNdviSeries } from '@/hooks/useNdviSeries';
 import { ndviStatus, ndviStatusColor } from '@/lib/ndvi';
 import type { PolygonPoint } from '@/lib/planet';
+import DataTrustBadge from '@/components/DataTrustBadge';
+import { evaluateTrust } from '@/lib/dataTrust';
 
 interface Props {
   vineyardId: string;
@@ -32,6 +34,23 @@ export default function NdviTrendSection({ vineyardId, polygon }: Props) {
     delta > 0.005 ? Colors.primary : delta < -0.005 ? Colors.danger : Colors.textMuted;
 
   const hasPolygon = polygon && polygon.length >= 3;
+
+  const isSimulated = !!last && last.sourceType === 'simulated';
+  const trust = last
+    ? evaluateTrust({
+        sourceType: isSimulated ? 'simulated' : 'derived',
+        sourceName: isSimulated
+          ? 'Simulated NDVI (fallback model)'
+          : 'Sentinel-2 L2A · Element84 STAC',
+        observedAt: last.acquiredAt,
+        scopeType: 'vineyard',
+        methodVersion: 'ndvi-v1',
+        kind: 'satellite',
+        note: isSimulated
+          ? 'Estimated from fallback logic because real reflectance statistics were unavailable for this scene.'
+          : undefined,
+      })
+    : null;
 
   return (
     <View style={styles.section}>
@@ -125,6 +144,12 @@ export default function NdviTrendSection({ vineyardId, polygon }: Props) {
               </Text>
             )}
           </View>
+
+          {trust ? (
+            <View style={styles.trustRow}>
+              <DataTrustBadge trust={trust} />
+            </View>
+          ) : null}
         </>
       )}
     </View>
@@ -226,5 +251,9 @@ const styles = StyleSheet.create({
   legendText: {
     color: Colors.textMuted,
     fontSize: 10,
+  },
+  trustRow: {
+    marginTop: 10,
+    flexDirection: 'row' as const,
   },
 });

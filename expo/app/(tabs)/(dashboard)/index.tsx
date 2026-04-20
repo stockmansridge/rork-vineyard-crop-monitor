@@ -10,6 +10,9 @@ import { useAuth } from '@/providers/AuthProvider';
 import { satelliteIndices } from '@/mocks/indices';
 import { useWeatherStation } from '@/providers/WeatherStationProvider';
 import { useAlerts, ComputedAlert } from '@/providers/AlertsProvider';
+import DataTrustBadge from '@/components/DataTrustBadge';
+import { demoTrust, evaluateTrust } from '@/lib/dataTrust';
+import { useForecast } from '@/hooks/useForecast';
 
 function DashboardAlert({ alert, onPress }: { alert: ComputedAlert; onPress: () => void }) {
   const cfg = alert.severity === 'danger'
@@ -39,6 +42,11 @@ export default function DashboardScreen() {
   const { vineyards, isLoading, isRefetching, refetch } = useVineyards();
   const { station } = useWeatherStation();
   const { alerts: computedAlerts, unreadCount, markRead } = useAlerts();
+  const firstVineyard = vineyards[0];
+  const forecast = useForecast(
+    firstVineyard?.latitude ?? null,
+    firstVineyard?.longitude ?? null
+  );
 
   const onRefresh = useCallback(() => {
     refetch();
@@ -47,6 +55,22 @@ export default function DashboardScreen() {
   const avgHealth = vineyards.length > 0
     ? Math.round(vineyards.reduce((sum, v) => sum + v.health_score, 0) / vineyards.length)
     : 0;
+
+  const currentWx = forecast.data?.current ?? null;
+  const wxTrust = currentWx
+    ? evaluateTrust({
+        sourceType: 'observed',
+        sourceName: forecast.data?.sourceName ?? 'Open-Meteo',
+        observedAt: currentWx.time,
+        scopeType: 'estate',
+        methodVersion: 'forecast-v1',
+        kind: 'weather-current',
+      })
+    : isDemoMode
+    ? demoTrust('Demo weather', 'estate')
+    : null;
+  const soilTrust = isDemoMode ? demoTrust('Demo soil probe', 'probe') : null;
+  const windTrust = wxTrust;
   const totalAlerts = unreadCount;
   const topIndices = isDemoMode ? satelliteIndices.slice(0, 3) : [];
   const visibleAlerts = computedAlerts.slice(0, 3);
@@ -113,24 +137,27 @@ export default function DashboardScreen() {
       <View style={styles.metricsRow}>
         <MetricCard
           label="Avg Temp"
-          value="16.2"
+          value={currentWx ? currentWx.temperature.toFixed(1) : isDemoMode ? '16.2' : '—'}
           unit="°C"
           icon={<Thermometer size={18} color={Colors.warning} />}
           color={Colors.warning}
+          trust={wxTrust ?? undefined}
         />
         <MetricCard
           label="Soil Moisture"
-          value="28.5"
+          value={isDemoMode ? '28.5' : '—'}
           unit="%"
           icon={<Droplets size={18} color={Colors.info} />}
           color={Colors.info}
+          trust={soilTrust ?? undefined}
         />
         <MetricCard
           label="Wind"
-          value="12"
+          value={currentWx ? Math.round(currentWx.windSpeed).toString() : isDemoMode ? '12' : '—'}
           unit="km/h"
           icon={<Wind size={18} color={Colors.textSecondary} />}
           color={Colors.textSecondary}
+          trust={windTrust ?? undefined}
         />
       </View>
 
@@ -155,6 +182,11 @@ export default function DashboardScreen() {
             <Text style={styles.seeAll}>See All</Text>
           </Pressable>
         </View>
+        {isDemoMode && (
+          <View style={styles.trustRow}>
+            <DataTrustBadge trust={demoTrust('Demo satellite indices', 'estate')} />
+          </View>
+        )}
         <View style={styles.indicesRow}>
           {topIndices.map((idx) => (
             <Pressable
@@ -500,5 +532,9 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 20,
+  },
+  trustRow: {
+    flexDirection: 'row' as const,
+    marginBottom: 10,
   },
 });

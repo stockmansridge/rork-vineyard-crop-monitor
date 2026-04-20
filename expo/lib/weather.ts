@@ -16,6 +16,9 @@ export interface WeatherSeason {
   avgTemp: number;
   totalPrecip: number;
   chillingHours: number;
+  sourceName: string;
+  sourceType: 'observed' | 'derived' | 'estimated';
+  observedAt: string | null;
 }
 
 export interface ForecastDay {
@@ -41,6 +44,9 @@ export interface WeatherForecast {
   days: ForecastDay[];
   frostRisk: boolean;
   nextFrostDate: string | null;
+  sourceName: string;
+  sourceType: 'observed' | 'derived' | 'estimated';
+  fetchedAt: string;
 }
 
 const BASE_TEMP_C = 10;
@@ -162,6 +168,8 @@ export async function fetchSeasonWeather(
   let tMaxArr: number[] = [];
   let tMinArr: number[] = [];
   let precArr: number[] = [];
+  let sourceName: string = 'Open-Meteo Archive';
+  let sourceType: 'observed' | 'derived' | 'estimated' = 'observed';
 
   if (options?.stationId && options.apiKey) {
     const pws = await fetchPwsDailySummary(options.stationId, options.apiKey, startStr, endStr);
@@ -170,6 +178,8 @@ export async function fetchSeasonWeather(
       tMaxArr = pws.tMax;
       tMinArr = pws.tMin;
       precArr = pws.prec;
+      sourceName = `Weather Underground PWS (${options.stationId})`;
+      sourceType = 'observed';
     }
   }
 
@@ -228,6 +238,8 @@ export async function fetchSeasonWeather(
     }
   }
 
+  const observedAt = days.length > 0 ? days[days.length - 1].date : null;
+
   return {
     seasonStart: startStr,
     today: endStr,
@@ -237,6 +249,9 @@ export async function fetchSeasonWeather(
     avgTemp,
     totalPrecip,
     chillingHours,
+    sourceName,
+    sourceType,
+    observedAt,
   };
 }
 
@@ -290,6 +305,9 @@ export async function fetchForecast(
     days,
     frostRisk: !!frostDay,
     nextFrostDate: frostDay?.date ?? null,
+    sourceName: 'Open-Meteo Forecast',
+    sourceType: 'derived',
+    fetchedAt: new Date().toISOString(),
   };
 }
 
