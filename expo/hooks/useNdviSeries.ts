@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSentinel2NdviSeries, NdviSample } from '@/lib/ndvi';
+import { fetchSentinel2NdviSeries, NdviSample, type IndexKind } from '@/lib/ndvi';
 import { PolygonPoint } from '@/lib/planet';
-import { useIndexReadings } from '@/providers/IndexReadingsProvider';
+import { useIndexReadings, type IndexType } from '@/providers/IndexReadingsProvider';
 import { useAuth } from '@/providers/AuthProvider';
 
 export function useNdviSeries(
   vineyardId: string | null | undefined,
   polygon: PolygonPoint[] | null | undefined,
-  monthsBack: number = 6
+  monthsBack: number = 6,
+  kind: IndexKind = 'NDVI'
 ) {
   const { isDemoMode } = useAuth();
   const { addReading, getVineyardReadings } = useIndexReadings();
@@ -18,10 +19,10 @@ export function useNdviSeries(
     .join('|');
 
   const query = useQuery<NdviSample[]>({
-    queryKey: ['ndvi-series', vineyardId, polyKey, monthsBack],
+    queryKey: ['ndvi-series', vineyardId, polyKey, monthsBack, kind],
     queryFn: async () => {
       if (!polygon || polygon.length < 3) return [];
-      const samples = await fetchSentinel2NdviSeries(polygon, monthsBack);
+      const samples = await fetchSentinel2NdviSeries(polygon, monthsBack, kind);
       return samples;
     },
     enabled: !!polygon && polygon.length >= 3,
@@ -37,15 +38,15 @@ export function useNdviSeries(
     if (isDemoMode) return;
     if (!vineyardId) return;
     if (!query.data || query.data.length === 0) return;
-    const key = `${vineyardId}:${query.data.map((s) => s.acquiredAt).join(',')}`;
+    const key = `${vineyardId}:${kind}:${query.data.map((s) => s.acquiredAt).join(',')}`;
     if (lastPersistedKeyRef.current === key) return;
     lastPersistedKeyRef.current = key;
-    void addReadingRef.current(vineyardId, query.data, 'NDVI');
-  }, [query.data, vineyardId, isDemoMode]);
+    void addReadingRef.current(vineyardId, query.data, kind as IndexType);
+  }, [query.data, vineyardId, isDemoMode, kind]);
 
   const stored = useMemo(
-    () => (vineyardId ? getVineyardReadings(vineyardId, 'NDVI') : []),
-    [vineyardId, getVineyardReadings]
+    () => (vineyardId ? getVineyardReadings(vineyardId, kind as IndexType) : []),
+    [vineyardId, getVineyardReadings, kind]
   );
 
   const combined = useMemo<NdviSample[]>(() => {

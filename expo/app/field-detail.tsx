@@ -313,6 +313,7 @@ export default function FieldDetailScreen() {
         <NdviTrendSection
           vineyardId={vineyard.id}
           polygon={vineyard.polygon_coords ?? null}
+          blockName={vineyard.name}
         />
 
         <ForecastSection

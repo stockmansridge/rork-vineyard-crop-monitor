@@ -1,21 +1,29 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import { Leaf, TrendingUp, TrendingDown, Minus } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import SeriesChart, { SeriesPoint } from '@/components/SeriesChart';
 import { useNdviSeries } from '@/hooks/useNdviSeries';
-import { ndviStatus, ndviStatusColor } from '@/lib/ndvi';
+import { ndviStatus, ndviStatusColor, type IndexKind } from '@/lib/ndvi';
 import type { PolygonPoint } from '@/lib/planet';
 import DataTrustBadge from '@/components/DataTrustBadge';
 import { evaluateTrust } from '@/lib/dataTrust';
+import IndexAnalysisCard from '@/components/IndexAnalysisCard';
+import { analyzeIndexSeries, type PeerBlockSnapshot } from '@/lib/indexAnalysis';
+import { useVineyards } from '@/providers/VineyardProvider';
+import { useIndexReadings } from '@/providers/IndexReadingsProvider';
 
 interface Props {
   vineyardId: string;
   polygon: PolygonPoint[] | null;
+  blockName: string;
 }
 
-export default function NdviTrendSection({ vineyardId, polygon }: Props) {
-  const { samples, isLoading, isFetching } = useNdviSeries(vineyardId, polygon, 6);
+export default function NdviTrendSection({ vineyardId, polygon, blockName }: Props) {
+  const [kind, setKind] = useState<IndexKind>('NDVI');
+  const { samples, isLoading, isFetching } = useNdviSeries(vineyardId, polygon, 6, kind);
+  const { vineyards } = useVineyards();
+  const { readings } = useIndexReadings();
 
   const points = useMemo<SeriesPoint[]>(
     () =>
@@ -24,6 +32,34 @@ export default function NdviTrendSection({ vineyardId, polygon }: Props) {
         y: s.value,
       })),
     [samples]
+  );
+
+  const peers = useMemo<PeerBlockSnapshot[]>(() => {
+    return vineyards
+      .filter((v) => v.id !== vineyardId)
+      .map((v) => {
+        const peerSamples = readings
+          .filter((r) => r.vineyard_id === v.id && r.index_type === kind)
+          .sort((a, b) => (a.acquired_at < b.acquired_at ? 1 : -1));
+        const latest = peerSamples[0];
+        return {
+          vineyardId: v.id,
+          vineyardName: v.name,
+          latest: latest ? Number(latest.value) : null,
+          acquiredAt: latest?.acquired_at ?? null,
+        };
+      });
+  }, [vineyards, readings, vineyardId, kind]);
+
+  const analysis = useMemo(
+    () =>
+      analyzeIndexSeries({
+        indexKey: kind === 'NDVI' ? 'NDVI' : 'NDRE',
+        samples,
+        blockName,
+        peers,
+      }),
+    [kind, samples, blockName, peers]
   );
 
   const last = samples.length > 0 ? samples[samples.length - 1] : null;
@@ -40,11 +76,11 @@ export default function NdviTrendSection({ vineyardId, polygon }: Props) {
     ? evaluateTrust({
         sourceType: isSimulated ? 'simulated' : 'derived',
         sourceName: isSimulated
-          ? 'Simulated NDVI (fallback model)'
-          : 'Sentinel-2 L2A · Element84 STAC',
+          ? `Simulated ${kind} (fallback model)`
+          : `Sentinel-2 L2A · ${kind}`,
         observedAt: last.acquiredAt,
         scopeType: 'vineyard',
-        methodVersion: 'ndvi-v1',
+        methodVersion: `${kind.toLowerCase()}-v1`,
         kind: 'satellite',
         note: isSimulated
           ? 'Estimated from fallback logic because real reflectance statistics were unavailable for this scene.'
@@ -57,15 +93,36 @@ export default function NdviTrendSection({ vineyardId, polygon }: Props) {
       <View style={styles.headerRow}>
         <View style={styles.titleRow}>
           <Leaf size={16} color={Colors.primary} />
-          <Text style={styles.title}>NDVI Vegetation Health</Text>
+          <Text style={styles.title}>Canopy & Chlorophyll</Text>
         </View>
         {isFetching && !isLoading && (
           <ActivityIndicator size="small" color={Colors.textMuted} />
         )}
       </View>
 
+      <View style={styles.tabRow}>
+        {(['NDVI', 'NDRE'] as IndexKind[]).map((k) => (
+          <Pressable
+            key={k}
+            onPress={() => setKind(k)}
+            style={({ pressed }) => [
+              styles.tab,
+              kind === k && styles.tabActive,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.tabText, kind === k && styles.tabTextActive]}>
+              {k}
+            </Text>
+            <Text style={[styles.tabSub, kind === k && styles.tabSubActive]}>
+              {k === 'NDVI' ? 'Canopy vigor' : 'Chlorophyll'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
       {!hasPolygon ? (
-        <Text style={styles.empty}>Draw a field boundary to track NDVI over time.</Text>
+        <Text style={styles.empty}>Draw a field boundary to track {kind} over time.</Text>
       ) : isLoading && samples.length === 0 ? (
         <View style={styles.loading}>
           <ActivityIndicator size="small" color={Colors.primary} />
@@ -145,6 +202,10 @@ export default function NdviTrendSection({ vineyardId, polygon }: Props) {
             )}
           </View>
 
+          <View style={styles.analysisWrap}>
+            <IndexAnalysisCard analysis={analysis} />
+          </View>
+
           {trust ? (
             <View style={styles.trustRow}>
               <DataTrustBadge trust={trust} />
@@ -169,7 +230,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   titleRow: {
     flexDirection: 'row',
@@ -180,6 +241,44 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 15,
     fontWeight: '700' as const,
+  },
+  tabRow: {
+    flexDirection: 'row' as const,
+    gap: 8,
+    marginBottom: 14,
+  },
+  tab: {
+    flex: 1,
+    backgroundColor: Colors.backgroundAlt,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  tabActive: {
+    backgroundColor: Colors.primaryMuted,
+    borderColor: Colors.primary + '60',
+  },
+  tabText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '800' as const,
+    letterSpacing: 0.5,
+  },
+  tabTextActive: {
+    color: Colors.primary,
+  },
+  tabSub: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    marginTop: 1,
+  },
+  tabSubActive: {
+    color: Colors.primary + 'CC',
+  },
+  pressed: {
+    opacity: 0.75,
   },
   empty: {
     color: Colors.textSecondary,
@@ -251,6 +350,9 @@ const styles = StyleSheet.create({
   legendText: {
     color: Colors.textMuted,
     fontSize: 10,
+  },
+  analysisWrap: {
+    marginTop: 12,
   },
   trustRow: {
     marginTop: 10,

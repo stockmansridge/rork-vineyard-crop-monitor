@@ -87,25 +87,36 @@ interface StatsJson {
   };
 }
 
-async function fetchNdviMeanForItem(
+export type IndexKind = 'NDVI' | 'NDRE';
+
+async function fetchIndexMeanForItem(
   item: StacItem,
-  polygon: PolygonPoint[]
+  polygon: PolygonPoint[],
+  kind: IndexKind = 'NDVI'
 ): Promise<number | null> {
   const redAsset = item.assets['red'] ?? item.assets['B04'];
   const nirAsset = item.assets['nir'] ?? item.assets['B08'];
-  if (!redAsset || !nirAsset) return null;
+  const rededgeAsset = item.assets['rededge1'] ?? item.assets['B05'] ?? item.assets['rededge'];
+  if (!nirAsset) return null;
+  if (kind === 'NDVI' && !redAsset) return null;
+  if (kind === 'NDRE' && !rededgeAsset) return null;
 
   const geometry = {
     type: 'Polygon',
     coordinates: [polygon.map((p) => [p.longitude, p.latitude])],
   };
 
-  const expression = `(nir_b1-red_b1)/(nir_b1+red_b1)`;
+  const expression =
+    kind === 'NDVI'
+      ? `(nir_b1-red_b1)/(nir_b1+red_b1)`
+      : `(nir_b1-rededge_b1)/(nir_b1+rededge_b1)`;
+  const assetsQuery =
+    kind === 'NDVI' ? `&assets=red&assets=nir` : `&assets=rededge&assets=nir`;
   const url = 'https://earth-search.aws.element84.com/v1/collections/sentinel-2-l2a/items/' +
     encodeURIComponent(item.id) + '/statistics';
 
   try {
-    const res = await fetch(url + `?expression=${encodeURIComponent(expression)}&assets=red&assets=nir`, {
+    const res = await fetch(url + `?expression=${encodeURIComponent(expression)}${assetsQuery}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(geometry),
@@ -152,7 +163,8 @@ function simulateNdviForItem(item: StacItem, polygon: PolygonPoint[]): number {
 
 export async function fetchSentinel2NdviSeries(
   polygon: PolygonPoint[],
-  monthsBack: number = 6
+  monthsBack: number = 6,
+  kind: IndexKind = 'NDVI'
 ): Promise<NdviSample[]> {
   if (polygon.length < 3) return [];
   const now = new Date();
@@ -190,10 +202,11 @@ export async function fetchSentinel2NdviSeries(
   const samples: NdviSample[] = [];
 
   for (const it of picked) {
-    let value = await fetchNdviMeanForItem(it, polygon);
+    let value = await fetchIndexMeanForItem(it, polygon, kind);
     let sourceType: 'derived' | 'simulated' = 'derived';
     if (value == null) {
       value = simulateNdviForItem(it, polygon);
+      if (kind === 'NDRE') value = Math.max(0.05, value * 0.75);
       sourceType = 'simulated';
     }
     samples.push({
