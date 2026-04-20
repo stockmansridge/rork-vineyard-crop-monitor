@@ -28,6 +28,13 @@ import {
   Wrench,
   Waves,
   NotebookPen,
+  User,
+  CalendarClock,
+  Repeat,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  History as HistoryIcon,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useScoutTasks } from '@/providers/ScoutTasksProvider';
@@ -36,6 +43,10 @@ import {
   outcomeLabel,
   statusLabel,
   triggerLabel,
+  followUpResultLabel,
+  effectivenessLabel,
+  type ActionEffectiveness,
+  type FollowUpResult,
   type ScoutCheckPoint,
   type ScoutObservations,
   type ScoutOutcome,
@@ -52,6 +63,7 @@ export default function ScoutTaskDetailScreen() {
 
   const [notes, setNotes] = useState<string>(task?.resolution_notes ?? '');
   const [action, setAction] = useState<string>(task?.action_taken ?? '');
+  const [performedBy, setPerformedBy] = useState<string>(task?.performed_by ?? '');
   const [obs, setObs] = useState<ScoutObservations>(
     task?.observations ?? {
       canopyCondition: null,
@@ -62,6 +74,13 @@ export default function ScoutTaskDetailScreen() {
     }
   );
   const [outcome, setOutcome] = useState<ScoutOutcome | null>(task?.outcome ?? null);
+  const [followUpResult, setFollowUpResult] = useState<FollowUpResult | null>(
+    task?.follow_up_result ?? null
+  );
+  const [followUpNotes, setFollowUpNotes] = useState<string>(task?.follow_up_notes ?? '');
+  const [effectiveness, setEffectiveness] = useState<ActionEffectiveness | null>(
+    task?.effectiveness ?? null
+  );
 
   const vineyard = useMemo(
     () => vineyards.find((v) => v.id === task?.vineyard_id) ?? null,
@@ -91,13 +110,50 @@ export default function ScoutTaskDetailScreen() {
   };
 
   const handleResolve = async (finalOutcome: ScoutOutcome) => {
+    const nowIso = new Date().toISOString();
     await updateTask(task.id, {
       status: 'resolved',
       outcome: finalOutcome,
       action_taken: action || null,
+      action_at: action ? nowIso : null,
+      performed_by: performedBy || null,
       resolution_notes: notes || null,
       observations: obs,
-      inspected_at: new Date().toISOString(),
+      inspected_at: nowIso,
+    });
+    router.back();
+  };
+
+  const handleMonitoring = async () => {
+    const nowIso = new Date().toISOString();
+    await updateTask(task.id, {
+      status: 'monitoring',
+      outcome: outcome ?? null,
+      action_taken: action || null,
+      action_at: action ? nowIso : null,
+      performed_by: performedBy || null,
+      resolution_notes: notes || null,
+      observations: obs,
+      inspected_at: nowIso,
+    });
+    router.back();
+  };
+
+  const handleFollowUp = async () => {
+    if (!followUpResult) return;
+    const nowIso = new Date().toISOString();
+    const nextStatus: ScoutStatus =
+      followUpResult === 'resolved' || followUpResult === 'improved'
+        ? 'resolved'
+        : followUpResult === 'unresolved' || followUpResult === 'worsened' || followUpResult === 'recurring'
+        ? 'monitoring'
+        : task.status;
+    await updateTask(task.id, {
+      status: nextStatus,
+      follow_up_at: nowIso,
+      follow_up_result: followUpResult,
+      follow_up_notes: followUpNotes || null,
+      effectiveness: effectiveness ?? null,
     });
     router.back();
   };
@@ -320,6 +376,17 @@ export default function ScoutTaskDetailScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Notes & action</Text>
+          <View style={styles.fieldRow}>
+            <User size={14} color={Colors.textMuted} />
+            <TextInput
+              value={performedBy}
+              onChangeText={setPerformedBy}
+              placeholder="Performed by (name or initials)"
+              placeholderTextColor={Colors.textMuted}
+              style={[styles.input, { flex: 1 }]}
+              testID="scout-performedby-input"
+            />
+          </View>
           <TextInput
             value={action}
             onChangeText={setAction}
@@ -377,20 +444,148 @@ export default function ScoutTaskDetailScreen() {
               );
             })}
           </View>
-          <Pressable
-            onPress={() => outcome && void handleResolve(outcome)}
-            disabled={!outcome || isUpdating}
-            style={({ pressed }) => [
-              styles.resolveBtn,
-              (!outcome || isUpdating) && styles.resolveBtnDisabled,
-              pressed && styles.pressed,
-            ]}
-            testID="scout-resolve-btn"
-          >
-            <Check size={16} color={Colors.background} />
-            <Text style={styles.resolveBtnText}>Mark resolved</Text>
-          </Pressable>
+          <View style={styles.resolveActions}>
+            <Pressable
+              onPress={() => outcome && void handleResolve(outcome)}
+              disabled={!outcome || isUpdating}
+              style={({ pressed }) => [
+                styles.resolveBtn,
+                (!outcome || isUpdating) && styles.resolveBtnDisabled,
+                pressed && styles.pressed,
+              ]}
+              testID="scout-resolve-btn"
+            >
+              <Check size={16} color={Colors.background} />
+              <Text style={styles.resolveBtnText}>Mark resolved</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => void handleMonitoring()}
+              disabled={isUpdating}
+              style={({ pressed }) => [
+                styles.monitorBtn,
+                isUpdating && styles.resolveBtnDisabled,
+                pressed && styles.pressed,
+              ]}
+              testID="scout-monitor-btn"
+            >
+              <Eye size={14} color={Colors.info} />
+              <Text style={styles.monitorBtnText}>Keep monitoring</Text>
+            </Pressable>
+          </View>
         </View>
+
+        {(task.status === 'resolved' || task.status === 'monitoring' || task.action_taken) && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.rowAligned}>
+                <Repeat size={14} color={Colors.primary} />
+                <Text style={styles.sectionTitle}>Follow-up</Text>
+              </View>
+              {task.follow_up_at && (
+                <Text style={styles.progressText}>
+                  {freshnessLabel(task.follow_up_at)}
+                </Text>
+              )}
+            </View>
+            <Text style={styles.sectionHint}>
+              Check back after a few days — did the action actually help? This feeds future prioritisation.
+            </Text>
+
+            <Text style={styles.subLabel}>Result after follow-up</Text>
+            <View style={styles.chipRow}>
+              {(
+                [
+                  { v: 'resolved' as FollowUpResult, Icon: Check, color: Colors.primary },
+                  { v: 'improved' as FollowUpResult, Icon: TrendingUp, color: Colors.primary },
+                  { v: 'unresolved' as FollowUpResult, Icon: Minus, color: Colors.warning },
+                  { v: 'worsened' as FollowUpResult, Icon: TrendingDown, color: Colors.danger },
+                  { v: 'recurring' as FollowUpResult, Icon: Repeat, color: Colors.danger },
+                ]
+              ).map((opt) => {
+                const active = followUpResult === opt.v;
+                return (
+                  <Pressable
+                    key={opt.v}
+                    onPress={() => setFollowUpResult(active ? null : opt.v)}
+                    style={({ pressed }) => [
+                      styles.optChip,
+                      active && { backgroundColor: opt.color + '20', borderColor: opt.color + '60' },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <opt.Icon size={12} color={active ? opt.color : Colors.textSecondary} />
+                    <Text style={[styles.optChipText, active && { color: opt.color }]}>
+                      {followUpResultLabel(opt.v)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text style={styles.subLabel}>Was the action effective?</Text>
+            <View style={styles.chipRow}>
+              {(
+                [
+                  { v: 'effective' as ActionEffectiveness, color: Colors.primary },
+                  { v: 'partial' as ActionEffectiveness, color: Colors.warning },
+                  { v: 'ineffective' as ActionEffectiveness, color: Colors.danger },
+                  { v: 'unknown' as ActionEffectiveness, color: Colors.textSecondary },
+                ]
+              ).map((opt) => {
+                const active = effectiveness === opt.v;
+                return (
+                  <Pressable
+                    key={opt.v}
+                    onPress={() => setEffectiveness(active ? null : opt.v)}
+                    style={({ pressed }) => [
+                      styles.optChip,
+                      active && { backgroundColor: opt.color + '20', borderColor: opt.color + '60' },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={[styles.optChipText, active && { color: opt.color }]}>
+                      {effectivenessLabel(opt.v)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <TextInput
+              value={followUpNotes}
+              onChangeText={setFollowUpNotes}
+              placeholder="Follow-up notes (what did you see 3–7 days later?)"
+              placeholderTextColor={Colors.textMuted}
+              style={[styles.input, { minHeight: 70 }]}
+              multiline
+              testID="scout-followup-notes"
+            />
+
+            <Pressable
+              onPress={() => void handleFollowUp()}
+              disabled={!followUpResult || isUpdating}
+              style={({ pressed }) => [
+                styles.resolveBtn,
+                (!followUpResult || isUpdating) && styles.resolveBtnDisabled,
+                pressed && styles.pressed,
+              ]}
+              testID="scout-followup-btn"
+            >
+              <CalendarClock size={16} color={Colors.background} />
+              <Text style={styles.resolveBtnText}>Save follow-up</Text>
+            </Pressable>
+
+            {task.follow_up_result && (
+              <View style={styles.historyLine}>
+                <HistoryIcon size={12} color={Colors.textMuted} />
+                <Text style={styles.historySub}>
+                  Previous follow-up: {followUpResultLabel(task.follow_up_result)}
+                  {task.effectiveness ? ` · ${effectivenessLabel(task.effectiveness)}` : ''}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -534,6 +729,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
   },
   outcomeChipText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '700' as const },
+  resolveActions: { gap: 8, marginTop: 6 },
   resolveBtn: {
     marginTop: 6,
     flexDirection: 'row' as const,
@@ -546,6 +742,20 @@ const styles = StyleSheet.create({
   },
   resolveBtnDisabled: { opacity: 0.5 },
   resolveBtnText: { color: Colors.background, fontSize: 14, fontWeight: '800' as const },
+  monitorBtn: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 8,
+    backgroundColor: Colors.infoMuted,
+    borderRadius: 12,
+    paddingVertical: 11,
+  },
+  monitorBtnText: { color: Colors.info, fontSize: 13, fontWeight: '700' as const },
+  fieldRow: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 8 },
+  rowAligned: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6 },
+  historyLine: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, marginTop: 6 },
+  historySub: { color: Colors.textMuted, fontSize: 11, fontWeight: '600' as const },
   pressed: { opacity: 0.8 },
   empty: { flex: 1, alignItems: 'center' as const, justifyContent: 'center' as const, padding: 32 },
   emptyTitle: { color: Colors.textSecondary, fontSize: 14 },

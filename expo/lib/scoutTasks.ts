@@ -11,8 +11,10 @@ export type ScoutTriggerKind =
   | 'manual'
   | 'other';
 
-export type ScoutStatus = 'open' | 'in_progress' | 'resolved' | 'ignored';
+export type ScoutStatus = 'open' | 'in_progress' | 'resolved' | 'ignored' | 'monitoring';
 export type ScoutOutcome = 'confirmed' | 'false_alarm' | 'partial' | 'not_checked';
+export type FollowUpResult = 'resolved' | 'unresolved' | 'recurring' | 'improved' | 'worsened';
+export type ActionEffectiveness = 'effective' | 'partial' | 'ineffective' | 'unknown';
 
 export interface ScoutPhoto {
   uri: string;
@@ -59,10 +61,16 @@ export interface DbScoutTask {
   inspected_at: string | null;
   outcome: ScoutOutcome | null;
   action_taken: string | null;
+  action_at: string | null;
+  performed_by: string | null;
   resolution_notes: string | null;
   photos: ScoutPhoto[] | null;
   pins: ScoutPin[] | null;
   observations: ScoutObservations | null;
+  follow_up_at: string | null;
+  follow_up_result: FollowUpResult | null;
+  follow_up_notes: string | null;
+  effectiveness: ActionEffectiveness | null;
   created_at: string;
   updated_at: string;
 }
@@ -248,5 +256,35 @@ export function statusLabel(s: ScoutStatus): string {
       return 'Resolved';
     case 'ignored':
       return 'Ignored';
+    case 'monitoring':
+      return 'Monitoring';
+  }
+}
+
+export function followUpResultLabel(r: FollowUpResult): string {
+  switch (r) {
+    case 'resolved':
+      return 'Resolved';
+    case 'unresolved':
+      return 'Still active';
+    case 'recurring':
+      return 'Recurring issue';
+    case 'improved':
+      return 'Improved';
+    case 'worsened':
+      return 'Worsened';
+  }
+}
+
+export function effectivenessLabel(e: ActionEffectiveness): string {
+  switch (e) {
+    case 'effective':
+      return 'Effective';
+    case 'partial':
+      return 'Partially effective';
+    case 'ineffective':
+      return 'Ineffective';
+    case 'unknown':
+      return 'Unknown';
   }
 }

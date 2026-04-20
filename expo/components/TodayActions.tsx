@@ -146,7 +146,7 @@ export default function TodayActions() {
   const { vineyards } = useVineyards();
   const { forecasts, probes, prefs } = useAlerts();
   const { isDemoMode } = useAuth();
-  const { findByRecId, createTask } = useScoutTasks();
+  const { findByRecId, createTask, tasks: scoutTasks } = useScoutTasks();
 
   const probeSnapshots: ProbeSnapshot[] = useMemo(
     () =>
@@ -171,6 +171,7 @@ export default function TodayActions() {
         forecasts,
         probes: probeSnapshots,
         isDemoMode,
+        scoutTasks,
         thresholds: {
           frostTempC: prefs.thresholds.frostTempC,
           heatTempC: prefs.thresholds.heatTempC,
@@ -180,7 +181,7 @@ export default function TodayActions() {
           highMoisturePct: prefs.thresholds.highMoisturePct,
         },
       }),
-    [vineyards, forecasts, probeSnapshots, isDemoMode, prefs.thresholds]
+    [vineyards, forecasts, probeSnapshots, isDemoMode, prefs.thresholds, scoutTasks]
   );
 
   const topRecs = useMemo(() => recs.slice(0, 5), [recs]);

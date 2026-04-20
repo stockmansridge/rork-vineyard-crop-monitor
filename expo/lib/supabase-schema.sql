@@ -570,18 +570,43 @@ create table if not exists public.scout_tasks (
   reason text,
   urgency text not null default 'medium' check (urgency in ('critical','high','medium','low')),
   confidence text not null default 'medium' check (confidence in ('high','medium','low')),
-  status text not null default 'open' check (status in ('open','in_progress','resolved','ignored')),
+  status text not null default 'open' check (status in ('open','in_progress','resolved','ignored','monitoring')),
   check_points jsonb,
   inspected_at timestamptz,
   outcome text check (outcome in ('confirmed','false_alarm','partial','not_checked')),
   action_taken text,
+  action_at timestamptz,
+  performed_by text,
   resolution_notes text,
   photos jsonb,
   pins jsonb,
   observations jsonb,
+  follow_up_at timestamptz,
+  follow_up_result text check (follow_up_result in ('resolved','unresolved','recurring','improved','worsened')),
+  follow_up_notes text,
+  effectiveness text check (effectiveness in ('effective','partial','ineffective','unknown')),
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- Migration for existing scout_tasks tables
+alter table public.scout_tasks
+  add column if not exists action_at timestamptz,
+  add column if not exists performed_by text,
+  add column if not exists follow_up_at timestamptz,
+  add column if not exists follow_up_result text,
+  add column if not exists follow_up_notes text,
+  add column if not exists effectiveness text;
+
+do $
+begin
+  begin
+    alter table public.scout_tasks drop constraint if exists scout_tasks_status_check;
+    alter table public.scout_tasks add constraint scout_tasks_status_check
+      check (status in ('open','in_progress','resolved','ignored','monitoring'));
+  exception when others then null;
+  end;
+end $;
 
 create index if not exists idx_scout_tasks_vineyard_status
   on public.scout_tasks (vineyard_id, status, created_at desc);

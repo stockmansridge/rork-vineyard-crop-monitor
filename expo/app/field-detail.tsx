@@ -23,6 +23,7 @@ import { useForecast } from '@/hooks/useForecast';
 import { assessAll } from '@/lib/weatherDecisions';
 import { useScoutTasks } from '@/providers/ScoutTasksProvider';
 import { statusLabel, triggerLabel } from '@/lib/scoutTasks';
+import BlockHistoryCard from '@/components/BlockHistoryCard';
 
 export default function FieldDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -365,6 +366,8 @@ export default function FieldDetailScreen() {
             ))
           )}
         </View>
+
+        <BlockHistoryCard vineyardId={vineyard.id} tasks={scoutTasks} />
 
         <WeatherDecisionsCard decisions={decisions} />
 

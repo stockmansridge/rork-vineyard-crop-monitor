@@ -62,6 +62,7 @@ function statusConfig(s: ScoutStatus) {
 export default function ScoutTasksScreen() {
   const router = useRouter();
   const { tasks, createTask, findByRecId, isCreating } = useScoutTasks();
+  const scoutTasksAll = tasks;
   const { vineyards } = useVineyards();
   const { forecasts, probes, prefs } = useAlerts();
   const { isDemoMode } = useAuth();
@@ -90,6 +91,7 @@ export default function ScoutTasksScreen() {
         forecasts,
         probes: probeSnapshots,
         isDemoMode,
+        scoutTasks: scoutTasksAll,
         thresholds: {
           frostTempC: prefs.thresholds.frostTempC,
           heatTempC: prefs.thresholds.heatTempC,
@@ -99,7 +101,7 @@ export default function ScoutTasksScreen() {
           highMoisturePct: prefs.thresholds.highMoisturePct,
         },
       }),
-    [vineyards, forecasts, probeSnapshots, isDemoMode, prefs.thresholds]
+    [vineyards, forecasts, probeSnapshots, isDemoMode, prefs.thresholds, scoutTasksAll]
   );
 
   const suggestions = useMemo(() => {

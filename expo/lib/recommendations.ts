@@ -3,6 +3,9 @@ import type { DbVineyard } from '@/providers/VineyardProvider';
 import { isStale, type DataTrust } from '@/lib/dataTrust';
 import { computeIrrigation, toRecommendation as irrigationToRec } from '@/lib/irrigation';
 import { assessSpray, assessFrost, assessDisease } from '@/lib/weatherDecisions';
+import type { DbScoutTask, ScoutTriggerKind } from '@/lib/scoutTasks';
+import { triggerFromKind } from '@/lib/scoutTasks';
+import { summarizeBlockHistory, priorityBoostForTrigger } from '@/lib/blockHistory';
 
 export type RecommendationKind =
   | 'inspect'
@@ -89,6 +92,21 @@ export interface ComputeRecommendationsInput {
   probes: ProbeSnapshot[];
   thresholds?: RecommendationThresholds;
   isDemoMode: boolean;
+  scoutTasks?: DbScoutTask[];
+}
+
+const URGENCY_ORDER: RecommendationPriority[] = ['low', 'medium', 'high', 'critical'];
+function shiftUrgency(p: RecommendationPriority, delta: number): RecommendationPriority {
+  const idx = URGENCY_ORDER.indexOf(p);
+  const next = Math.max(0, Math.min(URGENCY_ORDER.length - 1, idx + delta));
+  return URGENCY_ORDER[next];
+}
+const CONF_ORDER: RecommendationConfidence[] = ['low', 'medium', 'high'];
+function shiftConfidence(c: RecommendationConfidence, delta: number): RecommendationConfidence {
+  const idx = CONF_ORDER.indexOf(c);
+  const steps = delta >= 0.2 ? 1 : delta <= -0.2 ? -1 : 0;
+  const next = Math.max(0, Math.min(CONF_ORDER.length - 1, idx + steps));
+  return CONF_ORDER[next];
 }
 
 export function computeRecommendations(
@@ -373,7 +391,31 @@ export function computeRecommendations(
     );
   }
 
-  return sortRecommendations(out);
+  const tasksByVineyard = new Map<string, DbScoutTask[]>();
+  for (const task of input.scoutTasks ?? []) {
+    const list = tasksByVineyard.get(task.vineyard_id) ?? [];
+    list.push(task);
+    tasksByVineyard.set(task.vineyard_id, list);
+  }
+
+  const adjusted = out.map((rec) => {
+    if (!rec.vineyardId) return rec;
+    const vineyardTasks = tasksByVineyard.get(rec.vineyardId);
+    if (!vineyardTasks || vineyardTasks.length < 2) return rec;
+    const summary = summarizeBlockHistory(vineyardTasks);
+    const trigger: ScoutTriggerKind = triggerFromKind(rec.kind);
+    const boost = priorityBoostForTrigger(summary, trigger);
+    if (!boost.note) return rec;
+    return {
+      ...rec,
+      priority: shiftUrgency(rec.priority, boost.urgencyBoost),
+      confidence: shiftConfidence(rec.confidence, boost.confidenceBoost),
+      trustNote: boost.note,
+      reason: `${rec.reason} · ${boost.note}`,
+    };
+  });
+
+  return sortRecommendations(adjusted);
 }
 
 export function summarizeVerifiedTrust(trust: DataTrust | null | undefined): boolean {

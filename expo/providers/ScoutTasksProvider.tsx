@@ -5,7 +5,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from './AuthProvider';
 import type {
+  ActionEffectiveness,
   DbScoutTask,
+  FollowUpResult,
   ScoutCheckPoint,
   ScoutObservations,
   ScoutOutcome,
@@ -33,10 +35,16 @@ export interface ScoutTaskUpdate {
   inspected_at?: string | null;
   outcome?: ScoutOutcome | null;
   action_taken?: string | null;
+  action_at?: string | null;
+  performed_by?: string | null;
   resolution_notes?: string | null;
   photos?: ScoutPhoto[] | null;
   pins?: ScoutPin[] | null;
   observations?: ScoutObservations | null;
+  follow_up_at?: string | null;
+  follow_up_result?: FollowUpResult | null;
+  follow_up_notes?: string | null;
+  effectiveness?: ActionEffectiveness | null;
 }
 
 const DEMO_KEY = 'scout_tasks_demo_v1';
@@ -113,10 +121,16 @@ export const [ScoutTasksProvider, useScoutTasks] = createContextHook(() => {
           inspected_at: null,
           outcome: null,
           action_taken: null,
+          action_at: null,
+          performed_by: null,
           resolution_notes: null,
           photos: null,
           pins: null,
           observations: null,
+          follow_up_at: null,
+          follow_up_result: null,
+          follow_up_notes: null,
+          effectiveness: null,
           created_at: nowIso(),
           updated_at: nowIso(),
         };
