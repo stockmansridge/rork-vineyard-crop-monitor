@@ -19,6 +19,9 @@ export interface VineyardPermissions {
   canEditRecord: boolean;
   canDeleteRecord: boolean;
   canResolveScout: boolean;
+  canCreateScout: boolean;
+  canDeleteScout: boolean;
+  canCreateObservation: boolean;
   canAcknowledge: boolean;
 }
 
@@ -49,6 +52,9 @@ export function useVineyardPermissions(vineyardId: string | null | undefined): V
       canEditRecord: can('records.edit'),
       canDeleteRecord: can('records.delete'),
       canResolveScout: can('scout.resolve'),
+      canCreateScout: can('scout.create'),
+      canDeleteScout: can('scout.delete'),
+      canCreateObservation: can('observations.create'),
       canAcknowledge: can('recommendations.acknowledge'),
     }),
     [role, can]

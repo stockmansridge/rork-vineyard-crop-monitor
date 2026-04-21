@@ -30,6 +30,8 @@ import {
   type DbScoutTask,
 } from '@/lib/scoutTasks';
 import { freshnessLabel } from '@/lib/dataTrust';
+import { useVineyardPermissions } from '@/hooks/usePermissions';
+import { Alert } from 'react-native';
 
 type Filter = 'all' | 'open' | 'in_progress' | 'resolved';
 
@@ -63,7 +65,8 @@ export default function ScoutTasksScreen() {
   const router = useRouter();
   const { tasks, createTask, findByRecId, isCreating } = useScoutTasks();
   const scoutTasksAll = tasks;
-  const { vineyards } = useVineyards();
+  const { vineyards, canOnVineyard } = useVineyards();
+  const canCreateScoutOn = (vid: string) => canOnVineyard(vid, 'scout.create');
   const { forecasts, probes, prefs } = useAlerts();
   const { isDemoMode } = useAuth();
   const [filter, setFilter] = useState<Filter>('open');
@@ -129,8 +132,17 @@ export default function ScoutTasksScreen() {
     if (!rec) return;
     const draft = recommendationToDraft(rec);
     if (!draft) return;
-    const created = await createTask(draft);
-    router.push({ pathname: '/scout-task-detail', params: { id: created.id } });
+    if (!canCreateScoutOn(draft.vineyard_id)) {
+      Alert.alert('Not allowed', 'Your role cannot create scout tasks on this block. Ask an owner or manager.');
+      return;
+    }
+    try {
+      const created = await createTask(draft);
+      router.push({ pathname: '/scout-task-detail', params: { id: created.id } });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to create scout task';
+      Alert.alert('Error', msg);
+    }
   };
 
   const vineyardName = (id: string) => vineyards.find((v) => v.id === id)?.name ?? 'Block';
@@ -156,6 +168,7 @@ export default function ScoutTasksScreen() {
             </Text>
             {suggestions.map((rec) => {
               const cfg = urgencyConfig(rec.priority);
+              const canScoutHere = rec.vineyardId ? canCreateScoutOn(rec.vineyardId) : false;
               return (
                 <View key={rec.id} style={styles.suggestionCard} testID={`scout-sugg-${rec.id}`}>
                   <View style={[styles.iconBox, { backgroundColor: cfg.bg }]}>
@@ -171,13 +184,15 @@ export default function ScoutTasksScreen() {
                       <Text style={styles.metaText}>{rec.confidence} confidence</Text>
                     </View>
                   </View>
-                  <Pressable
-                    disabled={isCreating}
-                    onPress={() => void handleAccept(rec.id)}
-                    style={({ pressed }) => [styles.acceptBtn, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.acceptBtnText}>Scout</Text>
-                  </Pressable>
+                  {canScoutHere && (
+                    <Pressable
+                      disabled={isCreating}
+                      onPress={() => void handleAccept(rec.id)}
+                      style={({ pressed }) => [styles.acceptBtn, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.acceptBtnText}>Scout</Text>
+                    </Pressable>
+                  )}
                 </View>
               );
             })}

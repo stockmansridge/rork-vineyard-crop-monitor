@@ -699,9 +699,21 @@ returns boolean as $
   select coalesce(public.user_role_on_vineyard(vid) in ('owner','manager'), false);
 $ language sql stable security definer;
 
+create or replace function public.user_is_vineyard_owner(vid uuid)
+returns boolean as $
+  select exists (
+    select 1 from public.vineyards v
+    where v.id = vid and v.owner_id = auth.uid()
+  );
+$ language sql stable security definer;
+
 -- 16c. Stronger RLS enforcing roles on operational tables
--- scout_tasks: allow create for worker+, update for worker+, delete only for owner/manager
+-- scout_tasks matrix:
+--   insert (scout.create)  → owner, manager   (user_can_edit_vineyard)
+--   update (scout.resolve) → owner, manager, worker (user_can_create_records)
+--   delete (scout.delete)  → owner only       (user_is_vineyard_owner)
 drop policy if exists "Shared editors can update scout tasks" on public.scout_tasks;
+drop policy if exists "Role-based scout task update" on public.scout_tasks;
 create policy "Role-based scout task update"
   on public.scout_tasks for update
   using (
@@ -709,18 +721,20 @@ create policy "Role-based scout task update"
     or public.user_can_create_records(vineyard_id)
   );
 
+drop policy if exists "Role-based scout task insert" on public.scout_tasks;
 create policy "Role-based scout task insert"
   on public.scout_tasks for insert
   with check (
     auth.uid() = owner_id
-    or public.user_can_create_records(vineyard_id)
+    or public.user_can_edit_vineyard(vineyard_id)
   );
 
+drop policy if exists "Role-based scout task delete" on public.scout_tasks;
 create policy "Role-based scout task delete"
   on public.scout_tasks for delete
   using (
     auth.uid() = owner_id
-    or public.user_can_delete_records(vineyard_id)
+    or public.user_is_vineyard_owner(vineyard_id)
   );
 
 -- vineyard_tasks role-based access
@@ -948,14 +962,26 @@ create policy "Shared users view rec acks"
     )
   );
 
-create policy "Shared editors can insert rec acks"
+drop policy if exists "Shared editors can insert rec acks" on public.recommendation_acks;
+create policy "Role-based rec acks insert"
   on public.recommendation_acks for insert
   with check (
-    exists (
-      select 1 from public.vineyard_shares
-      where vineyard_shares.vineyard_id = recommendation_acks.vineyard_id
-      and vineyard_shares.shared_with_id = auth.uid()
-      and vineyard_shares.status = 'accepted'
-      and vineyard_shares.permission = 'edit'
-    )
+    auth.uid() = owner_id
+    or public.user_can_edit_vineyard(vineyard_id)
+  );
+
+drop policy if exists "Role-based rec acks update" on public.recommendation_acks;
+create policy "Role-based rec acks update"
+  on public.recommendation_acks for update
+  using (
+    auth.uid() = owner_id
+    or public.user_can_edit_vineyard(vineyard_id)
+  );
+
+drop policy if exists "Role-based rec acks delete" on public.recommendation_acks;
+create policy "Role-based rec acks delete"
+  on public.recommendation_acks for delete
+  using (
+    auth.uid() = owner_id
+    or public.user_is_vineyard_owner(vineyard_id)
   );

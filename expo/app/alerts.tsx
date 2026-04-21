@@ -3,8 +3,10 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { AlertTriangle, AlertCircle, Info, BellOff, Settings as SettingsIcon, CheckCheck, Eye } from 'lucide-react-native';
 import Colors from '@/constants/colors';
+import { Alert } from 'react-native';
 import { useAlerts, ComputedAlert } from '@/providers/AlertsProvider';
 import { useScoutTasks } from '@/providers/ScoutTasksProvider';
+import { useVineyards } from '@/providers/VineyardProvider';
 import type { ScoutTriggerKind } from '@/lib/scoutTasks';
 import type { RecommendationPriority } from '@/lib/recommendations';
 import DataTrustBadge from '@/components/DataTrustBadge';
@@ -65,6 +67,10 @@ export default function AlertsScreen() {
   const router = useRouter();
   const { alerts, readIds, markRead, markAllRead, unreadCount } = useAlerts();
   const { findByRecId, createTask } = useScoutTasks();
+  const { canOnVineyard } = useVineyards();
+
+  const canScoutFromAlert = (a: ComputedAlert): boolean =>
+    !!a.vineyardId && canOnVineyard(a.vineyardId, 'scout.create');
 
   const scoutFromAlert = async (a: ComputedAlert) => {
     if (!a.vineyardId) return;
@@ -73,16 +79,25 @@ export default function AlertsScreen() {
       router.push({ pathname: '/scout-task-detail', params: { id: existing.id } });
       return;
     }
-    const created = await createTask({
-      vineyard_id: a.vineyardId,
-      trigger_kind: categoryToTrigger(a.category),
-      trigger_rec_id: a.id,
-      title: `Scout ${a.vineyardName} — ${a.title}`,
-      reason: a.message,
-      urgency: severityToUrgency(a.severity),
-      confidence: 'medium',
-    });
-    router.push({ pathname: '/scout-task-detail', params: { id: created.id } });
+    if (!canOnVineyard(a.vineyardId, 'scout.create')) {
+      Alert.alert('Not allowed', 'Your role cannot create scout tasks on this block. Ask an owner or manager.');
+      return;
+    }
+    try {
+      const created = await createTask({
+        vineyard_id: a.vineyardId,
+        trigger_kind: categoryToTrigger(a.category),
+        trigger_rec_id: a.id,
+        title: `Scout ${a.vineyardName} — ${a.title}`,
+        reason: a.message,
+        urgency: severityToUrgency(a.severity),
+        confidence: 'medium',
+      });
+      router.push({ pathname: '/scout-task-detail', params: { id: created.id } });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to create scout task';
+      Alert.alert('Error', msg);
+    }
   };
 
   return (
@@ -157,7 +172,7 @@ export default function AlertsScreen() {
                     <Text style={styles.vineyard}>{a.vineyardName}</Text>
                     <Text style={styles.time}>{timeAgo(a.timestamp)}</Text>
                   </View>
-                  {a.vineyardId && (a.category !== 'battery' && a.category !== 'offline') && (
+                  {a.vineyardId && (a.category !== 'battery' && a.category !== 'offline') && (canScoutFromAlert(a) || !!findByRecId(a.id)) && (
                     <Pressable
                       onPress={(e) => {
                         e.stopPropagation();
