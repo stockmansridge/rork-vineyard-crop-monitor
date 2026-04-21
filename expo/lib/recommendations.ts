@@ -181,19 +181,22 @@ export function downgradeReasonsFromGate(
 ): string[] {
   const out: string[] = [];
   if (!gate && !extras.probeStale && !extras.seasonStale && !extras.forecastStale && !extras.sceneQuality) return out;
+  if (gate?.downgradeReasons?.length) {
+    out.push(...gate.downgradeReasons);
+  }
   if (gate?.blockers.length) {
     for (const b of gate.blockers) {
       out.push(`Recommendation blocked: ${b.toLowerCase()}.`);
     }
   }
-  if (gate?.defaultsUsed.length) {
+  if (gate && !gate.downgradeReasons?.length && gate.usedDefaults.length) {
     out.push(
-      `Confidence reduced because ${gate.defaultsUsed.join(', ')} ${gate.defaultsUsed.length === 1 ? 'is' : 'are'} using default values.`
+      `Confidence reduced because ${gate.usedDefaults.join(', ')} ${gate.usedDefaults.length === 1 ? 'is' : 'are'} using default values.`
     );
   }
-  if (gate?.missingInputs.length) {
+  if (gate && !gate.downgradeReasons?.length && gate.missingCriticalInputs.length) {
     out.push(
-      `Confidence reduced because ${gate.missingInputs.join(', ')} ${gate.missingInputs.length === 1 ? 'is' : 'are'} missing from block setup.`
+      `Confidence reduced because ${gate.missingCriticalInputs.join(', ')} ${gate.missingCriticalInputs.length === 1 ? 'is' : 'are'} missing from block setup.`
     );
   }
   if (extras.probeStale) {
@@ -220,11 +223,14 @@ export function assumptionsFromGate(
 ): string[] {
   const out: string[] = [];
   if (!gate) return out;
-  for (const d of gate.defaultsUsed) {
+  for (const d of gate.usedDefaults) {
     out.push(`${d}: using default value (not configured for this block).`);
   }
-  for (const m of gate.missingInputs) {
+  for (const m of gate.missingCriticalInputs) {
     out.push(`${m}: missing — generalized assumption applied.`);
+  }
+  for (const s of gate.staleInputs) {
+    out.push(`${s}: stale — refresh this input to strengthen the recommendation.`);
   }
   return out;
 }

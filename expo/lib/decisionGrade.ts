@@ -12,15 +12,36 @@ export type EngineKey =
   | 'satellite'
   | 'drainage';
 
+/**
+ * Standard per-engine grading contract.
+ *
+ * Every engine grader returns this exact shape so downstream consumers
+ * (recommendation builders, explainability panels, tests) can treat grades,
+ * blockers, defaults, missing inputs and stale inputs uniformly.
+ */
 export interface DecisionGradeResult {
   grade: RecommendationGrade;
   confidence: RecommendationConfidence;
+  /** Hard-blocks on any decision (demo data, no imagery, stale-and-no-probe, etc.). */
   blockers: string[];
-  defaultsUsed: string[];
-  missingInputs: string[];
+  /** Human-readable list of agronomic or model inputs that fell back to defaults. */
+  usedDefaults: string[];
+  /** Required inputs that must be present for a trustworthy output but are missing. */
+  missingCriticalInputs: string[];
+  /** Stale data sources that forced the grade down. */
+  staleInputs: string[];
+  /** Free-form advisory notes for the UI. */
   notes: string[];
+  /** Structured, uniform downgrade rationale for the UI. */
+  downgradeReasons: string[];
+  /** True when observed (non-forecast, non-default) inputs drove the decision. */
   usedObservedInputs: boolean;
+  /** True when the engine's operational-grade preconditions are all satisfied. */
   canBeOperational: boolean;
+  /** @deprecated alias of usedDefaults, retained for backward compatibility */
+  defaultsUsed: string[];
+  /** @deprecated alias of missingCriticalInputs, retained for backward compatibility */
+  missingInputs: string[];
 }
 
 export interface IrrigationGradeInput {
@@ -81,6 +102,15 @@ export interface SatelliteGradeInput {
   corroborated?: boolean;
 }
 
+type SeverityLevel = 'info' | 'monitor' | 'inspect' | 'advisory' | 'operational';
+const SEVERITY_ORDER: SeverityLevel[] = ['info', 'monitor', 'inspect', 'advisory', 'operational'];
+
+function capSeverity(current: SeverityLevel, max: SeverityLevel): SeverityLevel {
+  const ci = SEVERITY_ORDER.indexOf(current);
+  const mi = SEVERITY_ORDER.indexOf(max);
+  return SEVERITY_ORDER[Math.min(ci, mi)];
+}
+
 function confidenceFromScore(score: number): RecommendationConfidence {
   if (score >= 0.75) return 'high';
   if (score >= 0.5) return 'medium';
@@ -88,7 +118,7 @@ function confidenceFromScore(score: number): RecommendationConfidence {
 }
 
 function finalizeGrade(
-  desiredSeverity: 'info' | 'monitor' | 'inspect' | 'advisory' | 'operational',
+  desiredSeverity: SeverityLevel,
   canBeOperational: boolean,
   confidence: RecommendationConfidence,
   blockers: string[]
@@ -103,10 +133,108 @@ function finalizeGrade(
   return 'advisory';
 }
 
+/**
+ * Shared downgrade-rule application.
+ *
+ * This is the SINGLE place where per-engine signals (stale inputs, missing
+ * critical inputs, use of defaults, poor satellite scenes) are translated
+ * into severity caps. Keeping this logic in one place means every engine
+ * downgrades in a consistent way and the explainability wording stays uniform.
+ *
+ * Rules (max grade caps):
+ *   - stale critical input            → max 'inspect'
+ *   - missing required block config    → max 'inspect'
+ *   - default-based agronomic input    → max 'advisory'
+ *   - low-quality satellite scene      → max 'inspect'
+ *
+ * Blockers still short-circuit to 'insufficient-data' via finalizeGrade.
+ */
+export interface DowngradeInputs {
+  desiredSeverity: SeverityLevel;
+  blockers: string[];
+  staleInputs: string[];
+  missingCriticalInputs: string[];
+  usedDefaults: string[];
+  canBeOperational: boolean;
+  confidence: RecommendationConfidence;
+  sceneQuality?: 'good' | 'fair' | 'poor' | 'stale' | 'none';
+}
+
+export function applyDowngradeRules(i: DowngradeInputs): {
+  grade: RecommendationGrade;
+  effectiveSeverity: SeverityLevel;
+  downgradeReasons: string[];
+} {
+  const reasons: string[] = [];
+  let effective: SeverityLevel = i.desiredSeverity;
+
+  if (i.staleInputs.length > 0) {
+    effective = capSeverity(effective, 'inspect');
+    reasons.push(
+      `Stale critical input${i.staleInputs.length === 1 ? '' : 's'}: ${i.staleInputs.join(', ')} — capped at Inspect. Refresh the data to reach Operational.`
+    );
+  }
+  if (i.missingCriticalInputs.length > 0) {
+    effective = capSeverity(effective, 'inspect');
+    reasons.push(
+      `Required block config missing: ${i.missingCriticalInputs.join(', ')} — capped at Inspect. Complete block setup to reach Operational.`
+    );
+  }
+  if (i.usedDefaults.length > 0) {
+    effective = capSeverity(effective, 'advisory');
+    reasons.push(
+      `Default-based assumption${i.usedDefaults.length === 1 ? '' : 's'} in use: ${i.usedDefaults.join(', ')} — capped at Advisory. Configure block-specific values to strengthen confidence.`
+    );
+  }
+  if (i.sceneQuality === 'fair') {
+    effective = capSeverity(effective, 'inspect');
+    reasons.push('Satellite scene quality is moderate — capped at Inspect until a better scene is available.');
+  } else if (i.sceneQuality === 'poor' || i.sceneQuality === 'stale' || i.sceneQuality === 'none') {
+    reasons.push('Satellite scene is not usable for a decision-grade output.');
+  }
+  if (!i.canBeOperational && i.desiredSeverity === 'operational' && i.blockers.length === 0) {
+    reasons.push(
+      'Not all operational-grade preconditions are met (fresh observed input + clean block config + no blockers).'
+    );
+  }
+
+  const grade = finalizeGrade(effective, i.canBeOperational, i.confidence, i.blockers);
+  return { grade, effectiveSeverity: effective, downgradeReasons: reasons };
+}
+
+function makeResult(params: {
+  blockers: string[];
+  usedDefaults: string[];
+  missingCriticalInputs: string[];
+  staleInputs: string[];
+  notes: string[];
+  confidence: RecommendationConfidence;
+  canBeOperational: boolean;
+  usedObservedInputs: boolean;
+  grade: RecommendationGrade;
+  downgradeReasons: string[];
+}): DecisionGradeResult {
+  return {
+    grade: params.grade,
+    confidence: params.confidence,
+    blockers: params.blockers,
+    usedDefaults: params.usedDefaults,
+    missingCriticalInputs: params.missingCriticalInputs,
+    staleInputs: params.staleInputs,
+    notes: params.notes,
+    downgradeReasons: params.downgradeReasons,
+    usedObservedInputs: params.usedObservedInputs,
+    canBeOperational: params.canBeOperational,
+    defaultsUsed: params.usedDefaults,
+    missingInputs: params.missingCriticalInputs,
+  };
+}
+
 export function getIrrigationDecisionGrade(input: IrrigationGradeInput): DecisionGradeResult {
   const blockers: string[] = [];
-  const defaultsUsed: string[] = [];
-  const missingInputs: string[] = [];
+  const usedDefaults: string[] = [];
+  const missingCriticalInputs: string[] = [];
+  const staleInputs: string[] = [];
   const notes: string[] = [];
 
   const v = input.vineyard;
@@ -129,33 +257,35 @@ export function getIrrigationDecisionGrade(input: IrrigationGradeInput): Decisio
   if (!forecastOk) {
     notes.push('Forecast not available — projection limited');
   } else if (forecastStale) {
+    staleInputs.push('Weather forecast');
     notes.push('Forecast is stale');
+  }
+  if (input.probeObservedAt && !probeFresh) {
+    staleInputs.push('Probe reading');
+  }
+  if (input.season && seasonStale) {
+    staleInputs.push('Weather history');
   }
 
   if (v.irrigation_app_rate_mm_hr == null) {
-    defaultsUsed.push('Irrigation application rate');
-    missingInputs.push('Irrigation application rate (mm/hr)');
+    missingCriticalInputs.push('Irrigation application rate (mm/hr)');
   }
-  if (v.distribution_efficiency_pct == null) defaultsUsed.push('Distribution efficiency');
-  if (v.crop_coefficient == null) defaultsUsed.push('Crop coefficient (Kc)');
-  if (v.root_zone_depth_cm == null) defaultsUsed.push('Root zone depth');
-  if (v.mad_pct == null) defaultsUsed.push('MAD threshold');
-  if (v.soil_awc_mm_per_m == null) defaultsUsed.push('Soil AWC');
-  if (v.soil_type == null) missingInputs.push('Soil type');
+  if (v.distribution_efficiency_pct == null) usedDefaults.push('Distribution efficiency');
+  if (v.crop_coefficient == null) usedDefaults.push('Crop coefficient (Kc)');
+  if (v.root_zone_depth_cm == null) usedDefaults.push('Root zone depth');
+  if (v.mad_pct == null) usedDefaults.push('MAD threshold');
+  if (v.soil_awc_mm_per_m == null) usedDefaults.push('Soil AWC');
+  if (v.soil_type == null) missingCriticalInputs.push('Soil type');
   if (v.row_spacing_m == null || v.vine_spacing_m == null) {
-    missingInputs.push('Row/vine spacing');
+    missingCriticalInputs.push('Row/vine spacing');
   }
   if (v.emitter_spacing_m == null || v.emitter_flow_lph == null) {
-    missingInputs.push('Emitter spacing / flow rate');
+    missingCriticalInputs.push('Emitter spacing / flow rate');
   }
-  if (v.irrigation_zone == null) missingInputs.push('Irrigation zone');
+  if (v.irrigation_zone == null) missingCriticalInputs.push('Irrigation zone');
 
-  // For operational irrigation grade we require:
-  // - configured application rate
-  // - fresh probe data OR fresh season + fresh forecast
-  // - few-to-no defaults on critical agronomy inputs
-  const criticalDefaults = defaultsUsed.filter((d) =>
-    ['Irrigation application rate', 'Soil AWC', 'Root zone depth'].includes(d)
+  const criticalDefaults = usedDefaults.filter((d) =>
+    ['Soil AWC', 'Root zone depth'].includes(d)
   );
 
   const hasGroundTruth = probeFresh;
@@ -167,7 +297,7 @@ export function getIrrigationDecisionGrade(input: IrrigationGradeInput): Decisio
   if (v.irrigation_app_rate_mm_hr != null) score += 0.1;
   if (v.soil_awc_mm_per_m != null) score += 0.05;
   if (criticalDefaults.length === 0) score += 0.05;
-  if (defaultsUsed.length > 0) score -= 0.1;
+  if (usedDefaults.length > 0) score -= 0.1;
 
   const confidence = confidenceFromScore(score);
 
@@ -176,6 +306,7 @@ export function getIrrigationDecisionGrade(input: IrrigationGradeInput): Decisio
     hasGroundTruth &&
     hasFreshWeather &&
     criticalDefaults.length === 0 &&
+    missingCriticalInputs.length === 0 &&
     input.desiredState !== 'low-confidence';
 
   if (!canBeOperational && blockers.length === 0) {
@@ -185,7 +316,7 @@ export function getIrrigationDecisionGrade(input: IrrigationGradeInput): Decisio
       notes.push(`Using default values for: ${criticalDefaults.join(', ')}`);
   }
 
-  const desiredSeverity: 'info' | 'monitor' | 'inspect' | 'advisory' | 'operational' =
+  const desiredSeverity: SeverityLevel =
     input.desiredState === 'irrigate-today'
       ? 'operational'
       : input.desiredState === 'irrigate-48h'
@@ -196,39 +327,53 @@ export function getIrrigationDecisionGrade(input: IrrigationGradeInput): Decisio
       ? 'info'
       : 'inspect';
 
-  const grade = finalizeGrade(desiredSeverity, canBeOperational, confidence, blockers);
-
-  return {
-    grade,
-    confidence,
+  const { grade, downgradeReasons } = applyDowngradeRules({
+    desiredSeverity,
     blockers,
-    defaultsUsed,
-    missingInputs,
-    notes,
-    usedObservedInputs: probeFresh,
+    staleInputs,
+    missingCriticalInputs,
+    usedDefaults: criticalDefaults,
     canBeOperational,
-  };
+    confidence,
+  });
+
+  return makeResult({
+    blockers,
+    usedDefaults,
+    missingCriticalInputs,
+    staleInputs,
+    notes,
+    confidence,
+    canBeOperational,
+    usedObservedInputs: probeFresh,
+    grade,
+    downgradeReasons,
+  });
 }
 
 export function getSprayDecisionGrade(input: WeatherGradeInput): DecisionGradeResult {
   const blockers: string[] = [];
   const notes: string[] = [];
-  const missingInputs: string[] = [];
-  const defaultsUsed: string[] = [];
+  const missingCriticalInputs: string[] = [];
+  const usedDefaults: string[] = [];
+  const staleInputs: string[] = [];
 
   if (input.isDemo) blockers.push('Demo data — not decision-grade');
   if (!input.forecast || input.forecast.days.length === 0) {
     blockers.push('No forecast available');
   }
   const forecastStale = input.forecast ? isStale('weather-forecast', input.forecast.fetchedAt) : true;
-  if (forecastStale && input.forecast) blockers.push('Forecast is stale');
+  if (forecastStale && input.forecast) {
+    blockers.push('Forecast is stale');
+    staleInputs.push('Weather forecast');
+  }
 
   const today = input.forecast?.days[0];
   const hasWind = today ? Number.isFinite(today.windSpeedMax) : false;
   const hasRain = today ? Number.isFinite(today.precipProbability) && Number.isFinite(today.precipitation) : false;
-  if (!hasWind) missingInputs.push('Wind forecast');
-  if (!hasRain) missingInputs.push('Rain forecast');
-  if (input.current?.humidity == null) defaultsUsed.push('Humidity');
+  if (!hasWind) missingCriticalInputs.push('Wind forecast');
+  if (!hasRain) missingCriticalInputs.push('Rain forecast');
+  if (input.current?.humidity == null) usedDefaults.push('Humidity');
 
   let score = 0.3;
   if (!forecastStale) score += 0.35;
@@ -240,13 +385,11 @@ export function getSprayDecisionGrade(input: WeatherGradeInput): DecisionGradeRe
 
   const confidence = confidenceFromScore(score);
 
-  // Spray is an operational call when forecast is fresh, wind+rain data present,
-  // and severity is material (not-suitable / caution). Spray-OK at 'monitor'.
   const canBeOperational =
     blockers.length === 0 && !forecastStale && hasWind && hasRain;
 
   const severity = input.severity;
-  const desiredSeverity: 'info' | 'monitor' | 'inspect' | 'advisory' | 'operational' =
+  const desiredSeverity: SeverityLevel =
     severity === 'critical' || severity === 'elevated'
       ? 'operational'
       : severity === 'inspect'
@@ -255,39 +398,53 @@ export function getSprayDecisionGrade(input: WeatherGradeInput): DecisionGradeRe
       ? 'monitor'
       : 'info';
 
-  const grade = finalizeGrade(desiredSeverity, canBeOperational, confidence, blockers);
+  const { grade, downgradeReasons } = applyDowngradeRules({
+    desiredSeverity,
+    blockers,
+    staleInputs,
+    missingCriticalInputs,
+    usedDefaults,
+    canBeOperational,
+    confidence,
+  });
 
   if (grade === 'advisory') notes.push('Forecast-derived — ground-truth before treatment');
 
-  return {
-    grade,
-    confidence,
+  return makeResult({
     blockers,
-    defaultsUsed,
-    missingInputs,
+    usedDefaults,
+    missingCriticalInputs,
+    staleInputs,
     notes,
-    usedObservedInputs: false,
+    confidence,
     canBeOperational,
-  };
+    usedObservedInputs: false,
+    grade,
+    downgradeReasons,
+  });
 }
 
 export function getFrostDecisionGrade(input: WeatherGradeInput): DecisionGradeResult {
   const blockers: string[] = [];
   const notes: string[] = [];
-  const missingInputs: string[] = [];
-  const defaultsUsed: string[] = [];
+  const missingCriticalInputs: string[] = [];
+  const usedDefaults: string[] = [];
+  const staleInputs: string[] = [];
 
   if (input.isDemo) blockers.push('Demo data — not decision-grade');
   if (!input.forecast || input.forecast.days.length === 0) {
     blockers.push('No forecast available');
   }
   const forecastStale = input.forecast ? isStale('weather-forecast', input.forecast.fetchedAt) : true;
-  if (forecastStale && input.forecast) blockers.push('Forecast is stale');
+  if (forecastStale && input.forecast) {
+    blockers.push('Forecast is stale');
+    staleInputs.push('Weather forecast');
+  }
 
-  if (input.vineyard?.elevation_m == null) defaultsUsed.push('Elevation');
-  if (input.vineyard?.aspect == null) defaultsUsed.push('Aspect');
-  if (input.vineyard?.frost_risk == null) missingInputs.push('Block frost-risk flag');
-  if (input.current?.humidity == null) defaultsUsed.push('Current humidity');
+  if (input.vineyard?.elevation_m == null) usedDefaults.push('Elevation');
+  if (input.vineyard?.aspect == null) usedDefaults.push('Aspect');
+  if (input.vineyard?.frost_risk == null) missingCriticalInputs.push('Block frost-risk flag');
+  if (input.current?.humidity == null) usedDefaults.push('Current humidity');
 
   let score = 0.3;
   if (!forecastStale) score += 0.4;
@@ -296,49 +453,60 @@ export function getFrostDecisionGrade(input: WeatherGradeInput): DecisionGradeRe
   if (input.current?.humidity != null) score += 0.1;
 
   const confidence = confidenceFromScore(score);
-
-  // Frost is always advisory at best — overnight forecasts are inherently uncertain.
   const canBeOperational = false;
 
-  const desiredSeverity: 'info' | 'monitor' | 'inspect' | 'advisory' | 'operational' =
+  const desiredSeverity: SeverityLevel =
     input.severity === 'critical' || input.severity === 'elevated'
       ? 'advisory'
       : input.severity === 'monitor'
       ? 'monitor'
       : 'info';
 
-  const grade = finalizeGrade(desiredSeverity, canBeOperational, confidence, blockers);
+  const { grade, downgradeReasons } = applyDowngradeRules({
+    desiredSeverity,
+    blockers,
+    staleInputs,
+    missingCriticalInputs,
+    usedDefaults,
+    canBeOperational,
+    confidence,
+  });
   notes.push('Frost outputs stay advisory — forecasts carry overnight uncertainty');
 
-  return {
-    grade,
-    confidence,
+  return makeResult({
     blockers,
-    defaultsUsed,
-    missingInputs,
+    usedDefaults,
+    missingCriticalInputs,
+    staleInputs,
     notes,
-    usedObservedInputs: false,
+    confidence,
     canBeOperational,
-  };
+    usedObservedInputs: false,
+    grade,
+    downgradeReasons,
+  });
 }
 
 export function getDiseaseDecisionGrade(input: WeatherGradeInput): DecisionGradeResult {
   const blockers: string[] = [];
   const notes: string[] = [];
-  const missingInputs: string[] = [];
-  const defaultsUsed: string[] = [];
+  const missingCriticalInputs: string[] = [];
+  const usedDefaults: string[] = [];
+  const staleInputs: string[] = [];
 
   if (input.isDemo) blockers.push('Demo data — not decision-grade');
   if (!input.forecast || input.forecast.days.length === 0) {
     blockers.push('No forecast available');
   }
   const forecastStale = input.forecast ? isStale('weather-forecast', input.forecast.fetchedAt) : true;
-  if (forecastStale && input.forecast) blockers.push('Forecast is stale');
+  if (forecastStale && input.forecast) {
+    blockers.push('Forecast is stale');
+    staleInputs.push('Weather forecast');
+  }
 
-  if (input.current?.humidity == null) defaultsUsed.push('Humidity');
-  if (input.vineyard?.disease_prone == null) missingInputs.push('Block disease-prone flag');
-  // Leaf wetness proxy not yet tracked — always a default
-  defaultsUsed.push('Leaf wetness (proxy only)');
+  if (input.current?.humidity == null) usedDefaults.push('Humidity');
+  if (input.vineyard?.disease_prone == null) missingCriticalInputs.push('Block disease-prone flag');
+  usedDefaults.push('Leaf wetness (proxy only)');
 
   let score = 0.25;
   if (!forecastStale) score += 0.3;
@@ -346,11 +514,9 @@ export function getDiseaseDecisionGrade(input: WeatherGradeInput): DecisionGrade
   if (input.vineyard?.disease_prone != null) score += 0.1;
 
   const confidence = confidenceFromScore(score);
-
-  // Disease model is generic, not pathogen-specific — never operational.
   const canBeOperational = false;
 
-  const desiredSeverity: 'info' | 'monitor' | 'inspect' | 'advisory' | 'operational' =
+  const desiredSeverity: SeverityLevel =
     input.severity === 'critical'
       ? 'inspect'
       : input.severity === 'elevated'
@@ -361,38 +527,52 @@ export function getDiseaseDecisionGrade(input: WeatherGradeInput): DecisionGrade
       ? 'monitor'
       : 'info';
 
-  const grade = finalizeGrade(desiredSeverity, canBeOperational, confidence, blockers);
+  const { grade, downgradeReasons } = applyDowngradeRules({
+    desiredSeverity,
+    blockers,
+    staleInputs,
+    missingCriticalInputs,
+    usedDefaults,
+    canBeOperational,
+    confidence,
+  });
   notes.push('Generic disease-supportive proxy — recommend field inspection before treatment');
 
-  return {
-    grade,
-    confidence,
+  return makeResult({
     blockers,
-    defaultsUsed,
-    missingInputs,
+    usedDefaults,
+    missingCriticalInputs,
+    staleInputs,
     notes,
-    usedObservedInputs: false,
+    confidence,
     canBeOperational,
-  };
+    usedObservedInputs: false,
+    grade,
+    downgradeReasons,
+  });
 }
 
 export function getSatelliteDecisionGrade(input: SatelliteGradeInput): DecisionGradeResult {
   const blockers: string[] = [];
   const notes: string[] = [];
-  const missingInputs: string[] = [];
-  const defaultsUsed: string[] = [];
+  const missingCriticalInputs: string[] = [];
+  const usedDefaults: string[] = [];
+  const staleInputs: string[] = [];
 
   if (input.isDemo) blockers.push('Demo data — not decision-grade');
   if (!input.latest) blockers.push('No imagery available');
   if (input.latest?.sourceType === 'simulated') blockers.push('Simulated fallback imagery');
-  if (input.sceneQuality === 'stale') blockers.push('Scene past its useful window');
+  if (input.sceneQuality === 'stale') {
+    blockers.push('Scene past its useful window');
+    staleInputs.push('Satellite scene');
+  }
   if (input.sceneQuality === 'poor') blockers.push('Scene quality too poor for decision-grade');
   if (input.sceneQuality === 'none') blockers.push('No scene available');
 
-  if (!input.hasBaseline) defaultsUsed.push('Block baseline (not enough prior scenes)');
-  if (!input.hasPeers) defaultsUsed.push('Peer comparison (no comparable blocks)');
-  if (input.sampleCount < 3) missingInputs.push('Historical scenes (need ≥3 for trend)');
-  if (input.sampleCount < 5) missingInputs.push('Baseline history (need ≥5 scenes for a stable baseline)');
+  if (!input.hasBaseline) usedDefaults.push('Block baseline (not enough prior scenes)');
+  if (!input.hasPeers) usedDefaults.push('Peer comparison (no comparable blocks)');
+  if (input.sampleCount < 3) missingCriticalInputs.push('Historical scenes (need ≥3 for trend)');
+  if (input.sampleCount < 5) missingCriticalInputs.push('Baseline history (need ≥5 scenes)');
 
   let score = 0.2;
   if (input.sceneQuality === 'good') score += 0.4;
@@ -403,27 +583,31 @@ export function getSatelliteDecisionGrade(input: SatelliteGradeInput): DecisionG
   if (input.corroborated) score += 0.05;
 
   const confidence = confidenceFromScore(score);
-
-  // Satellite indices inform scouting — treat as advisory at best.
   const canBeOperational = false;
 
-  // Tighter severity ladder: most satellite outputs should resolve to monitor
-  // or inspect. Only corroborated anomalies on good, well-referenced scenes
-  // can earn 'inspect'; everything else stays advisory or softer.
   const strongScene =
     input.sceneQuality === 'good' && input.hasBaseline && input.sampleCount >= 5;
   const canInspect = strongScene && (input.corroborated === true || input.anomalyRepeated === true);
 
-  const desiredSeverity: 'info' | 'monitor' | 'inspect' | 'advisory' | 'operational' =
-    input.declineSignal
-      ? canInspect
-        ? 'inspect'
-        : input.sceneQuality === 'good'
-        ? 'advisory'
-        : 'monitor'
-      : 'monitor';
+  const desiredSeverity: SeverityLevel = input.declineSignal
+    ? canInspect
+      ? 'inspect'
+      : input.sceneQuality === 'good'
+      ? 'advisory'
+      : 'monitor'
+    : 'monitor';
 
-  const grade = finalizeGrade(desiredSeverity, canBeOperational, confidence, blockers);
+  const { grade, downgradeReasons } = applyDowngradeRules({
+    desiredSeverity,
+    blockers,
+    staleInputs,
+    missingCriticalInputs,
+    usedDefaults,
+    canBeOperational,
+    confidence,
+    sceneQuality: input.sceneQuality,
+  });
+
   if (blockers.length === 0) {
     notes.push('Satellite signals support scouting — not standalone operational decisions');
     if (input.declineSignal && !canInspect) {
@@ -431,34 +615,38 @@ export function getSatelliteDecisionGrade(input: SatelliteGradeInput): DecisionG
     }
   }
 
-  return {
-    grade,
-    confidence,
+  return makeResult({
     blockers,
-    defaultsUsed,
-    missingInputs,
+    usedDefaults,
+    missingCriticalInputs,
+    staleInputs,
     notes,
-    usedObservedInputs: input.sceneQuality === 'good' && input.latest?.sourceType !== 'simulated',
+    confidence,
     canBeOperational,
-  };
+    usedObservedInputs: input.sceneQuality === 'good' && input.latest?.sourceType !== 'simulated',
+    grade,
+    downgradeReasons,
+  });
 }
 
 export function getDrainageDecisionGrade(input: DrainageGradeInput): DecisionGradeResult {
   const blockers: string[] = [];
-  const defaultsUsed: string[] = [];
-  const missingInputs: string[] = [];
+  const usedDefaults: string[] = [];
+  const missingCriticalInputs: string[] = [];
+  const staleInputs: string[] = [];
   const notes: string[] = [];
 
   if (input.isDemo) blockers.push('Demo data — not decision-grade');
 
   if (input.kind === 'wet-probe' && !input.probeFresh) {
     blockers.push('Probe data is stale');
+    staleInputs.push('Probe reading');
   }
-  if (input.kind === 'rain-heavy' && (input.forecastRainMm == null)) {
-    missingInputs.push('Forecast rainfall');
+  if (input.kind === 'rain-heavy' && input.forecastRainMm == null) {
+    missingCriticalInputs.push('Forecast rainfall');
   }
   if (!input.waterloggingFlag && input.kind === 'rain-heavy') {
-    defaultsUsed.push('Block waterlogging flag');
+    usedDefaults.push('Block waterlogging flag');
   }
 
   let score = 0.3;
@@ -473,34 +661,41 @@ export function getDrainageDecisionGrade(input: DrainageGradeInput): DecisionGra
   }
   const confidence = confidenceFromScore(score);
 
-  // Only the wet-probe path with a fresh probe reading exceeding the threshold
-  // can be operational — it is a direct observed input. Rain-heavy drainage
-  // stays advisory because it relies on forecast precipitation.
   const canBeOperational =
     input.kind === 'wet-probe' &&
     blockers.length === 0 &&
     input.probeFresh &&
     input.probeExceedsThreshold;
 
-  const desiredSeverity: 'info' | 'monitor' | 'inspect' | 'advisory' | 'operational' =
+  const desiredSeverity: SeverityLevel =
     input.kind === 'wet-probe' && input.probeExceedsThreshold
       ? 'operational'
       : input.kind === 'rain-heavy' && input.waterloggingFlag
       ? 'advisory'
       : 'monitor';
 
-  const grade = finalizeGrade(desiredSeverity, canBeOperational, confidence, blockers);
-
-  return {
-    grade,
-    confidence,
+  const { grade, downgradeReasons } = applyDowngradeRules({
+    desiredSeverity,
     blockers,
-    defaultsUsed,
-    missingInputs,
-    notes,
-    usedObservedInputs: input.kind === 'wet-probe' && input.probeFresh,
+    staleInputs,
+    missingCriticalInputs,
+    usedDefaults,
     canBeOperational,
-  };
+    confidence,
+  });
+
+  return makeResult({
+    blockers,
+    usedDefaults,
+    missingCriticalInputs,
+    staleInputs,
+    notes,
+    confidence,
+    canBeOperational,
+    usedObservedInputs: input.kind === 'wet-probe' && input.probeFresh,
+    grade,
+    downgradeReasons,
+  });
 }
 
 export type EngineContext =
@@ -513,10 +708,10 @@ export type EngineContext =
 
 /**
  * Shared grading entry point. All recommendation builders MUST obtain their
- * grade through this helper (or one of the engine-specific helpers it delegates
- * to). No builder is allowed to hardcode 'operational' directly — operational
- * status is only ever returned by engine logic after readiness, staleness, and
- * default-usage checks.
+ * grade through this helper (or one of the engine-specific helpers it
+ * delegates to). No builder is allowed to hardcode 'operational' directly —
+ * operational status is only ever returned by engine logic after readiness,
+ * staleness, default-usage and scene-quality checks.
  */
 export function resolveRecommendationGrade(ctx: EngineContext): DecisionGradeResult {
   switch (ctx.engine) {
@@ -544,11 +739,14 @@ export function summarizeGradeNotes(result: DecisionGradeResult): string[] {
   if (result.blockers.length > 0) {
     out.push(`Blockers: ${result.blockers.join(', ')}`);
   }
-  if (result.defaultsUsed.length > 0) {
-    out.push(`Using defaults for: ${result.defaultsUsed.join(', ')}`);
+  if (result.usedDefaults.length > 0) {
+    out.push(`Using defaults for: ${result.usedDefaults.join(', ')}`);
   }
-  if (result.missingInputs.length > 0) {
-    out.push(`Missing: ${result.missingInputs.join(', ')}`);
+  if (result.missingCriticalInputs.length > 0) {
+    out.push(`Missing: ${result.missingCriticalInputs.join(', ')}`);
+  }
+  if (result.staleInputs.length > 0) {
+    out.push(`Stale: ${result.staleInputs.join(', ')}`);
   }
   out.push(...result.notes);
   return out;
