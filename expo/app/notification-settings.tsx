@@ -165,7 +165,8 @@ export default function NotificationSettingsScreen() {
         <View style={styles.section}>
           <Row
             icon={<Snowflake size={18} color={Colors.info} />}
-            title="Frost Warnings"
+            title="Frost watch"
+            subtitle="Overnight minimum forecast below threshold"
             value={local.frost}
             onValueChange={(v) => update({ frost: v })}
           />
@@ -186,8 +187,8 @@ export default function NotificationSettingsScreen() {
           <View style={styles.divider} />
           <Row
             icon={<Bug size={18} color={Colors.warning} />}
-            title="Disease Risk (Powdery Mildew)"
-            subtitle="Warm, wet conditions forecast"
+            title="Disease-supportive conditions"
+            subtitle="Warm, wet weather proxy — not a pathogen-specific model"
             value={local.disease}
             onValueChange={(v) => update({ disease: v })}
           />

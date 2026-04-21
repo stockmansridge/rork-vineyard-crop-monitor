@@ -385,7 +385,7 @@ export default function VineyardLogScreen() {
           )}
           {!phiActive && s.phi_days != null && (
             <View style={[styles.phiBanner, styles.phiBannerClear]}>
-              <Text style={[styles.phiBannerText, styles.phiBannerTextClear]}>PHI cleared · safe to harvest</Text>
+              <Text style={[styles.phiBannerText, styles.phiBannerTextClear]}>PHI cleared · harvest window open — verify product label before picking</Text>
             </View>
           )}
           {s.notes ? <Text style={styles.notes}>{s.notes}</Text> : null}

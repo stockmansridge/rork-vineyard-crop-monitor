@@ -266,7 +266,7 @@ export function computeIrrigation(input: IrrigationInput): IrrigationRecommendat
       state = 'no-irrigation';
       urgency = 'none';
       headline = `Hold irrigation · ${vineyard.name}`;
-      detail = `${forecastRainMm48h.toFixed(0)} mm rain expected in 48h should recharge the root zone. Re-evaluate after the rain event.`;
+      detail = `${forecastRainMm48h.toFixed(0)} mm rain forecast in 48h is expected to recharge the root zone. Advisory — re-evaluate after the rain event.`;
       if (preRainDeficit >= mad_mm) rainChangedDecision = true;
     } else if (currentDeficitMm < mad_mm * 0.4) {
       state = 'no-irrigation';

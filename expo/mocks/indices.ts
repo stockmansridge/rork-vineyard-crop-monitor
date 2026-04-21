@@ -66,7 +66,7 @@ export const satelliteIndices: SatelliteIndex[] = [
       { label: 'Excessive Vigor', min: 4.0, max: 10.0, color: '#1B5E20', meaning: 'Very high chlorophyll. Vines are likely too vigorous. Reduce nitrogen, increase canopy management.' },
       { label: 'Optimal', min: 2.0, max: 4.0, color: Colors.primary, meaning: 'Healthy chlorophyll for quality wine production. Good balance between growth and fruit development.' },
       { label: 'Low', min: 1.0, max: 2.0, color: Colors.warning, meaning: 'Below ideal levels. Consider foliar nitrogen application or soil amendments before deficiency worsens.' },
-      { label: 'Deficient', min: 0.0, max: 1.0, color: Colors.danger, meaning: 'Very low chlorophyll. Vine growth and yield will be impacted. Urgent nutritional intervention needed.' },
+      { label: 'Deficient', min: 0.0, max: 1.0, color: Colors.danger, meaning: 'Very low chlorophyll. Vine growth and yield may be impacted. Recommended inspection and petiole analysis before nutritional intervention.' },
     ],
     value: 2.15,
     min: 0,

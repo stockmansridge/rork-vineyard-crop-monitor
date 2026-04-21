@@ -4,8 +4,8 @@ export const alerts: Alert[] = [
   {
     id: '1',
     type: 'danger',
-    title: 'Low Soil Moisture',
-    message: 'Soil moisture at Creek Bend South has dropped below 20%. Consider irrigation within 24 hours.',
+    title: 'Soil moisture below threshold',
+    message: 'Soil moisture at Creek Bend South has dropped below 20%. Advisory — review the irrigation recommendation before acting.',
     vineyardName: 'Creek Bend South',
     timestamp: '2026-04-02T06:30:00Z',
     isRead: false,
@@ -22,8 +22,8 @@ export const alerts: Alert[] = [
   {
     id: '3',
     type: 'warning',
-    title: 'NDMI Decline Detected',
-    message: 'NDMI values trending downward at Valley Floor East over the past 2 weeks. Check canopy water stress.',
+    title: 'NDMI trending down',
+    message: 'NDMI values trending downward at Valley Floor East over the past 2 weeks. Advisory — recommended inspection for canopy water stress.',
     vineyardName: 'Valley Floor East',
     timestamp: '2026-04-01T18:00:00Z',
     isRead: true,
@@ -40,8 +40,8 @@ export const alerts: Alert[] = [
   {
     id: '5',
     type: 'warning',
-    title: 'pH Below Optimal Range',
-    message: 'Soil pH at Valley Floor East reading 5.8, below the optimal 6.0-7.0 range for Chardonnay.',
+    title: 'Soil pH out of range',
+    message: 'Soil pH at Valley Floor East reading 5.8, below the optimal 6.0-7.0 range for Chardonnay. Advisory — verify with a second measurement before amending.',
     vineyardName: 'Valley Floor East',
     timestamp: '2026-04-01T12:00:00Z',
     isRead: false,
