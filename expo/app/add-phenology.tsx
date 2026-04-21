@@ -5,6 +5,7 @@ import Colors from '@/constants/colors';
 import { useRecords, PhenologyStage } from '@/providers/RecordsProvider';
 import { useWeather } from '@/hooks/useWeather';
 import { useVineyards } from '@/providers/VineyardProvider';
+import { useVineyardPermissions } from '@/hooks/usePermissions';
 import {
   FormSection,
   FormField,
@@ -35,6 +36,7 @@ export default function AddPhenologyScreen() {
   const { vineyards } = useVineyards();
   const vineyard = vineyards.find((v) => v.id === id);
   const weather = useWeather(vineyard?.latitude ?? null, vineyard?.longitude ?? null);
+  const perms = useVineyardPermissions(id ?? null);
 
   const [stage, setStage] = useState<PhenologyStage>('budbreak');
   const [observedOn, setObservedOn] = useState<string>(todayISO());
@@ -43,6 +45,10 @@ export default function AddPhenologyScreen() {
 
   const handleSave = async () => {
     if (!id) return;
+    if (!perms.canCreateRecord) {
+      Alert.alert('Read-only access', 'Your role does not allow creating records.');
+      return;
+    }
     try {
       await addPhenology({
         vineyard_id: id,

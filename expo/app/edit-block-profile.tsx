@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Alert, Pressable, Text, View, Switch } from 're
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import Colors from '@/constants/colors';
 import { useVineyards, BlockAgronomy } from '@/providers/VineyardProvider';
+import { useVineyardPermissions } from '@/hooks/usePermissions';
 import {
   FormSection,
   FormField,
@@ -74,6 +75,7 @@ export default function EditBlockProfileScreen() {
   const router = useRouter();
   const { vineyards, updateVineyard } = useVineyards();
   const vineyard = useMemo(() => vineyards.find((v) => v.id === id), [vineyards, id]);
+  const perms = useVineyardPermissions(id ?? null);
 
   const [clone, setClone] = useState<string>(s(vineyard?.clone));
   const [rootstock, setRootstock] = useState<string>(s(vineyard?.rootstock));
@@ -119,6 +121,10 @@ export default function EditBlockProfileScreen() {
   }
 
   const handleSave = async () => {
+    if (!perms.canManageSettings) {
+      Alert.alert('Read-only access', 'Your role does not allow editing this block profile.');
+      return;
+    }
     setSaving(true);
     const updates: Partial<BlockAgronomy> & { planting_date?: string | null } = {
       clone: clone.trim() || null,

@@ -14,6 +14,7 @@ import { Mail, Users, Share2, Trash2, Shield, HardHat, User as UserIcon } from '
 import Colors from '@/constants/colors';
 import { useVineyards, ShareRole } from '@/providers/VineyardProvider';
 import { useAuth } from '@/providers/AuthProvider';
+import { useVineyardPermissions } from '@/hooks/usePermissions';
 
 interface RoleChipProps {
   active: boolean;
@@ -47,6 +48,8 @@ export default function ShareVineyardScreen() {
   const vineyard = vineyards.find((v) => v.id === id);
   const vineyardShares = shares.filter((s) => s.vineyard_id === id);
   const isOwner = vineyard?.owner_id === user?.id;
+  const perms = useVineyardPermissions(id ?? null);
+  const canManageUsers = perms.canManageUsers;
 
   if (!vineyard) {
     return (
@@ -106,7 +109,7 @@ export default function ShareVineyardScreen() {
           </View>
         </View>
 
-        {isOwner && (
+        {canManageUsers && (
           <>
             <Text style={styles.sectionHeader}>INVITE COLLABORATOR</Text>
             <View style={styles.formCard}>
@@ -143,11 +146,11 @@ export default function ShareVineyardScreen() {
                     onPress={() => { setRole('worker'); setPermission('edit'); }}
                   />
                   <RoleChip
-                    active={role === 'owner'}
+                    active={role === 'viewer'}
                     label="Viewer"
                     description="Read-only access"
                     Icon={UserIcon}
-                    onPress={() => { setRole('owner'); setPermission('view'); }}
+                    onPress={() => { setRole('viewer'); setPermission('view'); }}
                   />
                 </View>
               </View>
@@ -234,23 +237,23 @@ export default function ShareVineyardScreen() {
                       <Text style={styles.roleBadgeText}>{share.role ?? 'worker'}</Text>
                     </View>
                   </View>
-                  {isOwner && (
+                  {canManageUsers && (
                     <View style={styles.inlineRoleRow}>
-                      {(['manager', 'worker', 'owner'] as ShareRole[]).map((r) => (
+                      {(['manager', 'worker', 'viewer'] as ShareRole[]).map((r) => (
                         <Pressable
                           key={r}
                           style={[styles.miniRoleBtn, (share.role ?? 'worker') === r && styles.miniRoleBtnActive]}
-                          onPress={() => void updateShare(share.id, { role: r, permission: r === 'owner' ? 'view' : 'edit' })}
+                          onPress={() => void updateShare(share.id, { role: r, permission: r === 'viewer' ? 'view' : 'edit' })}
                         >
                           <Text style={[styles.miniRoleText, (share.role ?? 'worker') === r && styles.miniRoleTextActive]}>
-                            {r === 'owner' ? 'viewer' : r}
+                            {r}
                           </Text>
                         </Pressable>
                       ))}
                     </View>
                   )}
                 </View>
-                {isOwner && (
+                {canManageUsers && (
                   <Pressable
                     style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}
                     onPress={() => handleRemoveShare(share.id, share.shared_with_email)}

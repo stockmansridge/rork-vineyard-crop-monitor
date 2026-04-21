@@ -23,6 +23,7 @@ import {
 import Colors from '@/constants/colors';
 import { useVineyards } from '@/providers/VineyardProvider';
 import { useRecords } from '@/providers/RecordsProvider';
+import { useVineyardPermissions } from '@/hooks/usePermissions';
 import {
   buildCsv,
   exportCsv,
@@ -85,9 +86,19 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 export default function ReportsScreen() {
-  const { vineyards } = useVineyards();
+  const { vineyards, canOnVineyard } = useVineyards();
   const { tasks, phenology, sprays, harvests } = useRecords();
   const [vineyardFilter, setVineyardFilter] = useState<string | 'all'>('all');
+  const singleVineyardPerms = useVineyardPermissions(
+    vineyardFilter !== 'all' ? vineyardFilter : null
+  );
+  const canExport = vineyardFilter === 'all'
+    ? vineyards.some((v) => canOnVineyard(v.id, 'vineyard.exportReports'))
+    : singleVineyardPerms.canExport;
+  const exportableVineyards = useMemo(
+    () => vineyards.filter((v) => canOnVineyard(v.id, 'vineyard.exportReports')),
+    [vineyards, canOnVineyard]
+  );
   const [busy, setBusy] = useState<string | null>(null);
 
   const vineyardName = (vid: string | null): string => {
@@ -96,13 +107,16 @@ export default function ReportsScreen() {
   };
 
   const filteredVineyards = useMemo(
-    () => (vineyardFilter === 'all' ? vineyards : vineyards.filter((v) => v.id === vineyardFilter)),
-    [vineyards, vineyardFilter]
+    () => (vineyardFilter === 'all' ? exportableVineyards : exportableVineyards.filter((v) => v.id === vineyardFilter)),
+    [exportableVineyards, vineyardFilter]
   );
 
+  const exportableIds = useMemo(() => new Set(exportableVineyards.map((v) => v.id)), [exportableVineyards]);
+
   const filter = <T extends { vineyard_id: string }>(rows: T[]): T[] => {
-    if (vineyardFilter === 'all') return rows;
-    return rows.filter((r) => r.vineyard_id === vineyardFilter);
+    const permitted = rows.filter((r) => exportableIds.has(r.vineyard_id));
+    if (vineyardFilter === 'all') return permitted;
+    return permitted.filter((r) => r.vineyard_id === vineyardFilter);
   };
 
   const filterScope = vineyardFilter === 'all' ? 'all-vineyards' : (vineyards.find((v) => v.id === vineyardFilter)?.name ?? 'vineyard');
@@ -119,6 +133,10 @@ export default function ReportsScreen() {
   );
 
   const handleExport = async (kind: ReportKind, fmt: 'csv' | 'pdf') => {
+    if (!canExport) {
+      Alert.alert('Export restricted', 'Your role does not allow exporting reports for this selection.');
+      return;
+    }
     const key = `${kind}-${fmt}`;
     setBusy(key);
     try {
@@ -365,6 +383,16 @@ export default function ReportsScreen() {
         <Text style={styles.subheader}>
           Generate PDF or CSV reports for compliance, record-keeping, and sharing with consultants.
         </Text>
+        {!canExport && (
+          <View style={styles.infoCard}>
+            <ChevronRight size={14} color={Colors.warning} />
+            <Text style={[styles.infoText, { color: Colors.warning }]}>
+              {exportableVineyards.length === 0
+                ? 'Your role does not allow exporting any reports. Ask the owner or a manager for permission.'
+                : 'Exports are restricted to vineyards where you are an owner or manager.'}
+            </Text>
+          </View>
+        )}
 
         <Text style={styles.sectionLabel}>FILTER</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>

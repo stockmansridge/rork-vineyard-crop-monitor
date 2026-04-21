@@ -57,7 +57,75 @@ export interface DbVineyard extends Partial<BlockAgronomy> {
   updated_at: string;
 }
 
-export type ShareRole = 'owner' | 'manager' | 'worker';
+export type ShareRole = 'owner' | 'manager' | 'worker' | 'viewer';
+
+export type Capability =
+  | 'vineyard.delete'
+  | 'vineyard.edit'
+  | 'vineyard.manageUsers'
+  | 'vineyard.manageSettings'
+  | 'vineyard.exportReports'
+  | 'vineyard.manageBilling'
+  | 'records.create'
+  | 'records.edit'
+  | 'records.delete'
+  | 'scout.create'
+  | 'scout.resolve'
+  | 'scout.delete'
+  | 'recommendations.acknowledge'
+  | 'observations.create';
+
+const ROLE_CAPABILITIES: Record<ShareRole, Capability[]> = {
+  owner: [
+    'vineyard.delete',
+    'vineyard.edit',
+    'vineyard.manageUsers',
+    'vineyard.manageSettings',
+    'vineyard.exportReports',
+    'vineyard.manageBilling',
+    'records.create',
+    'records.edit',
+    'records.delete',
+    'scout.create',
+    'scout.resolve',
+    'scout.delete',
+    'recommendations.acknowledge',
+    'observations.create',
+  ],
+  manager: [
+    'vineyard.edit',
+    'vineyard.manageSettings',
+    'vineyard.exportReports',
+    'records.create',
+    'records.edit',
+    'records.delete',
+    'scout.create',
+    'scout.resolve',
+    'recommendations.acknowledge',
+    'observations.create',
+  ],
+  worker: [
+    'records.create',
+    'scout.resolve',
+    'observations.create',
+  ],
+  viewer: [],
+};
+
+export function roleHas(role: ShareRole | null | undefined, capability: Capability): boolean {
+  if (!role) return false;
+  return ROLE_CAPABILITIES[role]?.includes(capability) ?? false;
+}
+
+export function roleLabel(role: ShareRole | null | undefined): string {
+  switch (role) {
+    case 'owner': return 'Owner';
+    case 'manager': return 'Manager';
+    case 'worker': return 'Worker';
+    case 'viewer': return 'Viewer';
+    default: return 'Unknown';
+  }
+}
 
 export interface DbVineyardShare {
   id: string;
@@ -486,6 +554,27 @@ export const [VineyardProvider, useVineyards] = createContextHook(() => {
   const vineyards = useMemo(() => vineyardsQuery.data ?? [], [vineyardsQuery.data]);
   const shares = useMemo(() => sharesQuery.data ?? [], [sharesQuery.data]);
 
+  const getUserRole = useCallback(
+    (vineyardId: string): ShareRole | null => {
+      const vy = vineyards.find((v) => v.id === vineyardId);
+      if (!vy) return null;
+      if (vy.owner_id === user?.id) return 'owner';
+      const share = shares.find(
+        (s) => s.vineyard_id === vineyardId && s.shared_with_id === user?.id && s.status === 'accepted'
+      );
+      return share?.role ?? null;
+    },
+    [vineyards, shares, user?.id]
+  );
+
+  const canOnVineyard = useCallback(
+    (vineyardId: string, capability: Capability): boolean => {
+      const role = getUserRole(vineyardId);
+      return roleHas(role, capability);
+    },
+    [getUserRole]
+  );
+
   const pendingShares = useMemo(
     () => shares.filter((s) => s.shared_with_id === user?.id && s.status === 'pending'),
     [shares, user?.id]
@@ -500,6 +589,8 @@ export const [VineyardProvider, useVineyards] = createContextHook(() => {
     vineyards,
     shares,
     pendingShares,
+    getUserRole,
+    canOnVineyard,
     isLoading: vineyardsQuery.isLoading,
     isRefetching: vineyardsQuery.isRefetching,
     addVineyard,
@@ -515,7 +606,7 @@ export const [VineyardProvider, useVineyards] = createContextHook(() => {
     addError: addVineyardMutation.error?.message ?? null,
     shareError: shareVineyardMutation.error?.message ?? null,
   }), [
-    vineyards, shares, pendingShares,
+    vineyards, shares, pendingShares, getUserRole, canOnVineyard,
     vineyardsQuery.isLoading, vineyardsQuery.isRefetching,
     addVineyard, updateVineyard, deleteVineyard,
     shareVineyard, updateShare, respondToShare, removeShare, refetch,

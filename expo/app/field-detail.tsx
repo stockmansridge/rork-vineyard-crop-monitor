@@ -26,6 +26,7 @@ import { statusLabel, triggerLabel } from '@/lib/scoutTasks';
 import BlockHistoryCard from '@/components/BlockHistoryCard';
 import BlockReadinessCard from '@/components/BlockReadinessCard';
 import { useBlockReadiness } from '@/hooks/useBlockReadiness';
+import { useVineyardPermissions } from '@/hooks/usePermissions';
 
 export default function FieldDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -61,6 +62,7 @@ export default function FieldDetailScreen() {
   }
 
   const isOwner = vineyard.owner_id === user?.id;
+  const perms = useVineyardPermissions(vineyard.id);
   const vineyardShareCount = shares.filter(s => s.vineyard_id === vineyard.id).length;
   const fieldProbes = soilProbes.filter(p => p.vineyardId === vineyard.id);
   const weather = useWeather(vineyard.latitude, vineyard.longitude);
@@ -96,23 +98,23 @@ export default function FieldDetailScreen() {
           title: vineyard.name,
           headerRight: () => (
             <View style={styles.headerActions}>
-              {isOwner && (
-                <>
-                  <Pressable
-                    onPress={() => router.push({ pathname: '/share-vineyard', params: { id: vineyard.id } })}
-                    style={({ pressed }) => [pressed && styles.pressed]}
-                    hitSlop={8}
-                  >
-                    <Share2 size={18} color={Colors.primary} />
-                  </Pressable>
-                  <Pressable
-                    onPress={handleDelete}
-                    style={({ pressed }) => [pressed && styles.pressed]}
-                    hitSlop={8}
-                  >
-                    <Trash2 size={18} color={Colors.danger} />
-                  </Pressable>
-                </>
+              {perms.canManageUsers && (
+                <Pressable
+                  onPress={() => router.push({ pathname: '/share-vineyard', params: { id: vineyard.id } })}
+                  style={({ pressed }) => [pressed && styles.pressed]}
+                  hitSlop={8}
+                >
+                  <Share2 size={18} color={Colors.primary} />
+                </Pressable>
+              )}
+              {perms.canDelete && (
+                <Pressable
+                  onPress={handleDelete}
+                  style={({ pressed }) => [pressed && styles.pressed]}
+                  hitSlop={8}
+                >
+                  <Trash2 size={18} color={Colors.danger} />
+                </Pressable>
               )}
             </View>
           ),
@@ -125,9 +127,11 @@ export default function FieldDetailScreen() {
               <Text style={styles.variety}>{vineyard.variety}</Text>
               <Text style={styles.name}>{vineyard.name}</Text>
             </View>
-            {!isOwner && (
+            {!isOwner && perms.role && (
               <View style={styles.sharedBadge}>
-                <Text style={styles.sharedBadgeText}>Shared with you</Text>
+                <Text style={styles.sharedBadgeText}>
+                  {perms.role === 'viewer' ? 'Viewer · read only' : `Shared · ${perms.role}`}
+                </Text>
               </View>
             )}
           </View>
@@ -152,14 +156,16 @@ export default function FieldDetailScreen() {
           <View style={styles.profileHeader}>
             <Settings2 size={16} color={Colors.primary} />
             <Text style={styles.profileTitle}>Block Profile</Text>
-            <Pressable
-              onPress={() => router.push({ pathname: '/edit-block-profile', params: { id: vineyard.id } })}
-              style={({ pressed }) => [styles.editBtn, pressed && styles.pressed]}
-              hitSlop={8}
-            >
-              <Edit3 size={13} color={Colors.primary} />
-              <Text style={styles.editBtnText}>Edit</Text>
-            </Pressable>
+            {perms.canManageSettings && (
+              <Pressable
+                onPress={() => router.push({ pathname: '/edit-block-profile', params: { id: vineyard.id } })}
+                style={({ pressed }) => [styles.editBtn, pressed && styles.pressed]}
+                hitSlop={8}
+              >
+                <Edit3 size={13} color={Colors.primary} />
+                <Text style={styles.editBtnText}>Edit</Text>
+              </Pressable>
+            )}
           </View>
           {(() => {
             const v = vineyard;

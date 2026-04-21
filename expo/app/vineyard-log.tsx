@@ -30,6 +30,7 @@ import {
 import Colors from '@/constants/colors';
 import { useVineyards } from '@/providers/VineyardProvider';
 import { useRecords, TaskType, PhenologyStage } from '@/providers/RecordsProvider';
+import { useVineyardPermissions } from '@/hooks/usePermissions';
 
 type Tab = 'tasks' | 'phenology' | 'sprays' | 'harvests';
 
@@ -96,6 +97,7 @@ export default function VineyardLogScreen() {
     isLoading,
   } = useRecords();
 
+  const perms = useVineyardPermissions(id ?? null);
   const tasks = useMemo(() => (id ? getVineyardTasks(id) : []), [id, getVineyardTasks]);
   const phenology = useMemo(() => (id ? getVineyardPhenology(id) : []), [id, getVineyardPhenology]);
   const sprays = useMemo(() => (id ? getVineyardSprays(id) : []), [id, getVineyardSprays]);
@@ -261,9 +263,11 @@ export default function VineyardLogScreen() {
               </View>
             )}
             <View style={styles.flexFill} />
-            <Pressable onPress={() => confirmDelete(() => deleteTask(t.id), 'task')} hitSlop={8}>
-              <Trash2 size={14} color={Colors.danger} />
-            </Pressable>
+            {perms.canDeleteRecord && (
+              <Pressable onPress={() => confirmDelete(() => deleteTask(t.id), 'task')} hitSlop={8}>
+                <Trash2 size={14} color={Colors.danger} />
+              </Pressable>
+            )}
           </View>
         </View>
       );
@@ -303,9 +307,11 @@ export default function VineyardLogScreen() {
                   {p.gdd_at_event != null ? ` · ${Math.round(p.gdd_at_event)} GDD` : ''}
                 </Text>
               </View>
-              <Pressable onPress={() => confirmDelete(() => deletePhenology(p.id), 'event')} hitSlop={8}>
-                <Trash2 size={14} color={Colors.danger} />
-              </Pressable>
+              {perms.canDeleteRecord && (
+                <Pressable onPress={() => confirmDelete(() => deletePhenology(p.id), 'event')} hitSlop={8}>
+                  <Trash2 size={14} color={Colors.danger} />
+                </Pressable>
+              )}
             </View>
             {p.notes ? <Text style={styles.notes}>{p.notes}</Text> : null}
           </View>
@@ -334,9 +340,11 @@ export default function VineyardLogScreen() {
                 {formatDate(s.applied_on)} · {s.active_ingredient ?? 'n/a'}
               </Text>
             </View>
-            <Pressable onPress={() => confirmDelete(() => deleteSpray(s.id), 'spray record')} hitSlop={8}>
-              <Trash2 size={14} color={Colors.danger} />
-            </Pressable>
+            {perms.canDeleteRecord && (
+              <Pressable onPress={() => confirmDelete(() => deleteSpray(s.id), 'spray record')} hitSlop={8}>
+                <Trash2 size={14} color={Colors.danger} />
+              </Pressable>
+            )}
           </View>
           <View style={styles.sprayGrid}>
             {s.target && (
@@ -426,9 +434,11 @@ export default function VineyardLogScreen() {
                   {h.destination ? ` · ${h.destination}` : ''}
                 </Text>
               </View>
-              <Pressable onPress={() => confirmDelete(() => deleteHarvest(h.id), 'harvest')} hitSlop={8}>
-                <Trash2 size={14} color={Colors.danger} />
-              </Pressable>
+              {perms.canDeleteRecord && (
+                <Pressable onPress={() => confirmDelete(() => deleteHarvest(h.id), 'harvest')} hitSlop={8}>
+                  <Trash2 size={14} color={Colors.danger} />
+                </Pressable>
+              )}
             </View>
             <View style={styles.sprayGrid}>
               {h.brix != null && (
@@ -492,14 +502,16 @@ export default function VineyardLogScreen() {
           title: `${vineyard.name} Log`,
           headerRight: () => (
             <View style={styles.headerActions}>
-              {tab === 'sprays' && sprays.length > 0 && (
+              {tab === 'sprays' && sprays.length > 0 && perms.canExport && (
                 <Pressable onPress={() => void exportSpraysCSV()} hitSlop={8}>
                   <Download size={18} color={Colors.info} />
                 </Pressable>
               )}
-              <Pressable onPress={handleAdd} hitSlop={8}>
-                <Plus size={22} color={Colors.primary} />
-              </Pressable>
+              {perms.canCreateRecord && (
+                <Pressable onPress={handleAdd} hitSlop={8}>
+                  <Plus size={22} color={Colors.primary} />
+                </Pressable>
+              )}
             </View>
           ),
         }}

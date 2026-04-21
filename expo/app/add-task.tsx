@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Alert, Pressable, Text } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import Colors from '@/constants/colors';
 import { useRecords, TaskType } from '@/providers/RecordsProvider';
+import { useVineyardPermissions } from '@/hooks/usePermissions';
 import {
   FormSection,
   FormField,
@@ -28,6 +29,7 @@ export default function AddTaskScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { addTask, isAddingTask } = useRecords();
+  const perms = useVineyardPermissions(id ?? null);
 
   const [taskType, setTaskType] = useState<TaskType>('pruning');
   const [title, setTitle] = useState<string>('');
@@ -39,6 +41,10 @@ export default function AddTaskScreen() {
 
   const handleSave = async () => {
     if (!id) return;
+    if (!perms.canCreateRecord) {
+      Alert.alert('Read-only access', 'Your role does not allow creating records.');
+      return;
+    }
     if (!title.trim()) {
       Alert.alert('Missing info', 'Please enter a title.');
       return;

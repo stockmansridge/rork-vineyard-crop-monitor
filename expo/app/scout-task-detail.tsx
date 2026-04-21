@@ -53,6 +53,7 @@ import {
   type ScoutStatus,
 } from '@/lib/scoutTasks';
 import { freshnessLabel } from '@/lib/dataTrust';
+import { useVineyardPermissions } from '@/hooks/usePermissions';
 
 export default function ScoutTaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -86,6 +87,7 @@ export default function ScoutTaskDetailScreen() {
     () => vineyards.find((v) => v.id === task?.vineyard_id) ?? null,
     [vineyards, task?.vineyard_id]
   );
+  const perms = useVineyardPermissions(task?.vineyard_id);
 
   if (!task) {
     return (
@@ -204,9 +206,11 @@ export default function ScoutTaskDetailScreen() {
         options={{
           title: 'Inspection',
           headerRight: () => (
-            <Pressable onPress={handleDelete} hitSlop={8}>
-              <Trash2 size={18} color={Colors.danger} />
-            </Pressable>
+            perms.can('scout.delete') ? (
+              <Pressable onPress={handleDelete} hitSlop={8}>
+                <Trash2 size={18} color={Colors.danger} />
+              </Pressable>
+            ) : null
           ),
         }}
       />
@@ -245,7 +249,14 @@ export default function ScoutTaskDetailScreen() {
           </View>
         </View>
 
-        {task.status !== 'resolved' && (
+        {perms.isReadOnly && (
+          <View style={styles.readOnlyBanner}>
+            <Text style={styles.readOnlyBannerText}>
+              Read-only access. Ask an owner or manager to update this inspection.
+            </Text>
+          </View>
+        )}
+        {task.status !== 'resolved' && perms.canResolveScout && (
           <View style={styles.actionRow}>
             {task.status === 'open' && (
               <Pressable
@@ -444,6 +455,7 @@ export default function ScoutTaskDetailScreen() {
               );
             })}
           </View>
+          {perms.canResolveScout && (
           <View style={styles.resolveActions}>
             <Pressable
               onPress={() => outcome && void handleResolve(outcome)}
@@ -472,9 +484,10 @@ export default function ScoutTaskDetailScreen() {
               <Text style={styles.monitorBtnText}>Keep monitoring</Text>
             </Pressable>
           </View>
+          )}
         </View>
 
-        {(task.status === 'resolved' || task.status === 'monitoring' || task.action_taken) && (
+        {(task.status === 'resolved' || task.status === 'monitoring' || task.action_taken) && perms.canResolveScout && (
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.rowAligned}>
@@ -716,6 +729,14 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   photoText: { color: Colors.textMuted, fontSize: 11, flex: 1, lineHeight: 15 },
+  readOnlyBanner: {
+    backgroundColor: Colors.warningMuted,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.warning + '40',
+    padding: 12,
+  },
+  readOnlyBannerText: { color: Colors.warning, fontSize: 12, fontWeight: '600' as const },
   outcomeRow: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 6 },
   outcomeChip: {
     flexDirection: 'row' as const,

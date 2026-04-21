@@ -590,6 +590,15 @@ create table if not exists public.scout_tasks (
 );
 
 -- Migration for existing scout_tasks tables
+do $
+begin
+  begin
+    alter table public.scout_tasks drop constraint if exists scout_tasks_trigger_kind_check;
+    alter table public.scout_tasks add constraint scout_tasks_trigger_kind_check
+      check (trigger_kind in ('falling-vigor','moisture-pattern','irrigation','disease','frost','heat','drainage','manual','other'));
+  exception when others then null;
+  end;
+end $;
 alter table public.scout_tasks
   add column if not exists action_at timestamptz,
   add column if not exists performed_by text,
@@ -651,14 +660,172 @@ alter table public.vineyard_shares
 
 do $
 begin
-  if not exists (
-    select 1 from pg_constraint where conname = 'vineyard_shares_role_check'
-  ) then
+  begin
+    alter table public.vineyard_shares drop constraint if exists vineyard_shares_role_check;
     alter table public.vineyard_shares
       add constraint vineyard_shares_role_check
-      check (role in ('owner','manager','worker'));
-  end if;
+      check (role in ('owner','manager','worker','viewer'));
+  exception when others then null;
+  end;
 end $;
+
+-- 16b. Helper: check capability of current user on a vineyard
+create or replace function public.user_role_on_vineyard(vid uuid)
+returns text as $
+  select case
+    when exists (select 1 from public.vineyards v where v.id = vid and v.owner_id = auth.uid()) then 'owner'
+    else (
+      select role from public.vineyard_shares s
+      where s.vineyard_id = vid
+        and s.shared_with_id = auth.uid()
+        and s.status = 'accepted'
+      limit 1
+    )
+  end;
+$ language sql stable security definer;
+
+create or replace function public.user_can_edit_vineyard(vid uuid)
+returns boolean as $
+  select coalesce(public.user_role_on_vineyard(vid) in ('owner','manager'), false);
+$ language sql stable security definer;
+
+create or replace function public.user_can_create_records(vid uuid)
+returns boolean as $
+  select coalesce(public.user_role_on_vineyard(vid) in ('owner','manager','worker'), false);
+$ language sql stable security definer;
+
+create or replace function public.user_can_delete_records(vid uuid)
+returns boolean as $
+  select coalesce(public.user_role_on_vineyard(vid) in ('owner','manager'), false);
+$ language sql stable security definer;
+
+-- 16c. Stronger RLS enforcing roles on operational tables
+-- scout_tasks: allow create for worker+, update for worker+, delete only for owner/manager
+drop policy if exists "Shared editors can update scout tasks" on public.scout_tasks;
+create policy "Role-based scout task update"
+  on public.scout_tasks for update
+  using (
+    auth.uid() = owner_id
+    or public.user_can_create_records(vineyard_id)
+  );
+
+create policy "Role-based scout task insert"
+  on public.scout_tasks for insert
+  with check (
+    auth.uid() = owner_id
+    or public.user_can_create_records(vineyard_id)
+  );
+
+create policy "Role-based scout task delete"
+  on public.scout_tasks for delete
+  using (
+    auth.uid() = owner_id
+    or public.user_can_delete_records(vineyard_id)
+  );
+
+-- vineyard_tasks role-based access
+drop policy if exists "Role-based vineyard_tasks insert" on public.vineyard_tasks;
+create policy "Role-based vineyard_tasks insert"
+  on public.vineyard_tasks for insert
+  with check (
+    auth.uid() = owner_id
+    or public.user_can_create_records(vineyard_id)
+  );
+
+drop policy if exists "Role-based vineyard_tasks update" on public.vineyard_tasks;
+create policy "Role-based vineyard_tasks update"
+  on public.vineyard_tasks for update
+  using (
+    auth.uid() = owner_id
+    or public.user_can_edit_vineyard(vineyard_id)
+  );
+
+drop policy if exists "Role-based vineyard_tasks delete" on public.vineyard_tasks;
+create policy "Role-based vineyard_tasks delete"
+  on public.vineyard_tasks for delete
+  using (
+    auth.uid() = owner_id
+    or public.user_can_delete_records(vineyard_id)
+  );
+
+-- spray_records role-based access
+drop policy if exists "Role-based sprays insert" on public.spray_records;
+create policy "Role-based sprays insert"
+  on public.spray_records for insert
+  with check (
+    auth.uid() = owner_id
+    or public.user_can_create_records(vineyard_id)
+  );
+
+drop policy if exists "Role-based sprays update" on public.spray_records;
+create policy "Role-based sprays update"
+  on public.spray_records for update
+  using (
+    auth.uid() = owner_id
+    or public.user_can_edit_vineyard(vineyard_id)
+  );
+
+drop policy if exists "Role-based sprays delete" on public.spray_records;
+create policy "Role-based sprays delete"
+  on public.spray_records for delete
+  using (
+    auth.uid() = owner_id
+    or public.user_can_delete_records(vineyard_id)
+  );
+
+-- harvest_records role-based access
+drop policy if exists "Role-based harvests insert" on public.harvest_records;
+create policy "Role-based harvests insert"
+  on public.harvest_records for insert
+  with check (
+    auth.uid() = owner_id
+    or public.user_can_create_records(vineyard_id)
+  );
+
+drop policy if exists "Role-based harvests update" on public.harvest_records;
+create policy "Role-based harvests update"
+  on public.harvest_records for update
+  using (
+    auth.uid() = owner_id
+    or public.user_can_edit_vineyard(vineyard_id)
+  );
+
+drop policy if exists "Role-based harvests delete" on public.harvest_records;
+create policy "Role-based harvests delete"
+  on public.harvest_records for delete
+  using (
+    auth.uid() = owner_id
+    or public.user_can_delete_records(vineyard_id)
+  );
+
+-- phenology_events role-based access
+drop policy if exists "Role-based phenology insert" on public.phenology_events;
+create policy "Role-based phenology insert"
+  on public.phenology_events for insert
+  with check (
+    auth.uid() = owner_id
+    or public.user_can_create_records(vineyard_id)
+  );
+
+drop policy if exists "Role-based phenology delete" on public.phenology_events;
+create policy "Role-based phenology delete"
+  on public.phenology_events for delete
+  using (
+    auth.uid() = owner_id
+    or public.user_can_delete_records(vineyard_id)
+  );
+
+-- Only owners and managers can update vineyard settings
+drop policy if exists "Role-based vineyard update" on public.vineyards;
+create policy "Role-based vineyard update"
+  on public.vineyards for update
+  using (
+    auth.uid() = owner_id
+    or public.user_can_edit_vineyard(id)
+  );
+
+-- Only owners can delete vineyards (already enforced by the "Owners can manage" policy for delete)
+-- Only owners can manage vineyard_shares (already enforced)
 
 -- 17. Alert preferences (one row per user, synced across devices)
 create table if not exists public.alert_preferences (

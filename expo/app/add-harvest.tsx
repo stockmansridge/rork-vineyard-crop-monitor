@@ -4,6 +4,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import Colors from '@/constants/colors';
 import { useRecords } from '@/providers/RecordsProvider';
 import { useVineyards } from '@/providers/VineyardProvider';
+import { useVineyardPermissions } from '@/hooks/usePermissions';
 import {
   FormSection,
   FormField,
@@ -19,6 +20,7 @@ export default function AddHarvestScreen() {
   const { addHarvest, isAddingHarvest } = useRecords();
   const { vineyards } = useVineyards();
   const vineyard = vineyards.find((v) => v.id === id);
+  const perms = useVineyardPermissions(id ?? null);
 
   const [harvestedOn, setHarvestedOn] = useState<string>(todayISO());
   const [yieldKg, setYieldKg] = useState<string>('');
@@ -35,6 +37,10 @@ export default function AddHarvestScreen() {
 
   const handleSave = async () => {
     if (!id) return;
+    if (!perms.canCreateRecord) {
+      Alert.alert('Read-only access', 'Your role does not allow creating records.');
+      return;
+    }
     try {
       const kg = yieldKg ? parseFloat(yieldKg) : null;
       const area = vineyard?.area ?? 0;
