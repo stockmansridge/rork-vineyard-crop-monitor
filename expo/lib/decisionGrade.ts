@@ -9,7 +9,8 @@ export type EngineKey =
   | 'spray'
   | 'frost'
   | 'disease'
-  | 'satellite';
+  | 'satellite'
+  | 'drainage';
 
 export interface DecisionGradeResult {
   grade: RecommendationGrade;
@@ -57,6 +58,15 @@ export interface WeatherGradeInput {
   vineyard?: Pick<DbVineyard, 'frost_risk' | 'elevation_m' | 'aspect' | 'disease_prone'> | null;
   isDemo?: boolean;
   severity: 'none' | 'monitor' | 'inspect' | 'elevated' | 'critical';
+}
+
+export interface DrainageGradeInput {
+  kind: 'wet-probe' | 'rain-heavy';
+  probeFresh: boolean;
+  probeExceedsThreshold: boolean;
+  waterloggingFlag: boolean;
+  forecastRainMm?: number | null;
+  isDemo?: boolean;
 }
 
 export interface SatelliteGradeInput {
@@ -431,6 +441,102 @@ export function getSatelliteDecisionGrade(input: SatelliteGradeInput): DecisionG
     usedObservedInputs: input.sceneQuality === 'good' && input.latest?.sourceType !== 'simulated',
     canBeOperational,
   };
+}
+
+export function getDrainageDecisionGrade(input: DrainageGradeInput): DecisionGradeResult {
+  const blockers: string[] = [];
+  const defaultsUsed: string[] = [];
+  const missingInputs: string[] = [];
+  const notes: string[] = [];
+
+  if (input.isDemo) blockers.push('Demo data — not decision-grade');
+
+  if (input.kind === 'wet-probe' && !input.probeFresh) {
+    blockers.push('Probe data is stale');
+  }
+  if (input.kind === 'rain-heavy' && (input.forecastRainMm == null)) {
+    missingInputs.push('Forecast rainfall');
+  }
+  if (!input.waterloggingFlag && input.kind === 'rain-heavy') {
+    defaultsUsed.push('Block waterlogging flag');
+  }
+
+  let score = 0.3;
+  if (input.kind === 'wet-probe') {
+    if (input.probeFresh) score += 0.5;
+    if (input.probeExceedsThreshold) score += 0.1;
+    if (input.waterloggingFlag) score += 0.05;
+  } else {
+    if (input.waterloggingFlag) score += 0.2;
+    if ((input.forecastRainMm ?? 0) >= 25) score += 0.2;
+    if ((input.forecastRainMm ?? 0) >= 40) score += 0.1;
+  }
+  const confidence = confidenceFromScore(score);
+
+  // Only the wet-probe path with a fresh probe reading exceeding the threshold
+  // can be operational — it is a direct observed input. Rain-heavy drainage
+  // stays advisory because it relies on forecast precipitation.
+  const canBeOperational =
+    input.kind === 'wet-probe' &&
+    blockers.length === 0 &&
+    input.probeFresh &&
+    input.probeExceedsThreshold;
+
+  const desiredSeverity: 'info' | 'monitor' | 'inspect' | 'advisory' | 'operational' =
+    input.kind === 'wet-probe' && input.probeExceedsThreshold
+      ? 'operational'
+      : input.kind === 'rain-heavy' && input.waterloggingFlag
+      ? 'advisory'
+      : 'monitor';
+
+  const grade = finalizeGrade(desiredSeverity, canBeOperational, confidence, blockers);
+
+  return {
+    grade,
+    confidence,
+    blockers,
+    defaultsUsed,
+    missingInputs,
+    notes,
+    usedObservedInputs: input.kind === 'wet-probe' && input.probeFresh,
+    canBeOperational,
+  };
+}
+
+export type EngineContext =
+  | { engine: 'irrigation'; input: IrrigationGradeInput }
+  | { engine: 'spray'; input: WeatherGradeInput }
+  | { engine: 'frost'; input: WeatherGradeInput }
+  | { engine: 'disease'; input: WeatherGradeInput }
+  | { engine: 'satellite'; input: SatelliteGradeInput }
+  | { engine: 'drainage'; input: DrainageGradeInput };
+
+/**
+ * Shared grading entry point. All recommendation builders MUST obtain their
+ * grade through this helper (or one of the engine-specific helpers it delegates
+ * to). No builder is allowed to hardcode 'operational' directly — operational
+ * status is only ever returned by engine logic after readiness, staleness, and
+ * default-usage checks.
+ */
+export function resolveRecommendationGrade(ctx: EngineContext): DecisionGradeResult {
+  switch (ctx.engine) {
+    case 'irrigation':
+      return getIrrigationDecisionGrade(ctx.input);
+    case 'spray':
+      return getSprayDecisionGrade(ctx.input);
+    case 'frost':
+      return getFrostDecisionGrade(ctx.input);
+    case 'disease':
+      return getDiseaseDecisionGrade(ctx.input);
+    case 'satellite':
+      return getSatelliteDecisionGrade(ctx.input);
+    case 'drainage':
+      return getDrainageDecisionGrade(ctx.input);
+  }
+}
+
+export function resolveRecommendationConfidence(ctx: EngineContext): RecommendationConfidence {
+  return resolveRecommendationGrade(ctx).confidence;
 }
 
 export function summarizeGradeNotes(result: DecisionGradeResult): string[] {

@@ -7,6 +7,8 @@ import {
   getSprayDecisionGrade,
   getFrostDecisionGrade,
   getDiseaseDecisionGrade,
+  getDrainageDecisionGrade,
+  resolveRecommendationGrade,
 } from '@/lib/decisionGrade';
 import type { DbScoutTask, ScoutTriggerKind } from '@/lib/scoutTasks';
 import { triggerFromKind } from '@/lib/scoutTasks';
@@ -122,7 +124,7 @@ function inferGrade(
   confidence: RecommendationConfidence,
   kind: RecommendationKind,
   priority: RecommendationPriority,
-  usedObserved: boolean
+  _usedObserved: boolean
 ): RecommendationGrade {
   if (kind === 'stale-data' || kind === 'setup') return 'insufficient-data';
   if (confidence === 'low') {
@@ -131,9 +133,8 @@ function inferGrade(
   if (priority === 'low' && (kind === 'spray-ok' || kind === 'disease-risk' || kind === 'inspect')) {
     return 'monitor';
   }
-  // Operational grade is never inferred here — it must come from an engine-specific
-  // decision-grade gate (see lib/decisionGrade.ts).
-  if (confidence === 'high' && usedObserved && (kind === 'drainage')) return 'operational';
+  // Operational grade is NEVER inferred here — it must come from an engine-specific
+  // decision-grade gate via resolveRecommendationGrade() in lib/decisionGrade.ts.
   return 'advisory';
 }
 
@@ -530,12 +531,23 @@ export function computeRecommendations(
       // Heavy rain + waterlogging
       const heavy = next3.find((d) => d.precipitation >= 25);
       if (heavy && v.waterlogging_risk) {
+        const rainGate = resolveRecommendationGrade({
+          engine: 'drainage',
+          input: {
+            kind: 'rain-heavy',
+            probeFresh: false,
+            probeExceedsThreshold: false,
+            waterloggingFlag: !!v.waterlogging_risk,
+            forecastRainMm: heavy.precipitation,
+            isDemo: input.isDemoMode,
+          },
+        });
         out.push({
           id: `drain-${v.id}-${heavy.date}`,
           kind: 'drainage',
           priority: 'high',
-          confidence: 'medium',
-          grade: 'advisory',
+          confidence: rainGate.confidence,
+          grade: rainGate.grade,
           title: `Recommended drainage check · ${v.name}`,
           reason: `${heavy.precipitation.toFixed(0)}mm expected ${heavy.date}. Block is flagged for waterlogging — recommended inspection ahead of the rain event.`,
           vineyardId: v.id,
@@ -546,6 +558,8 @@ export function computeRecommendations(
             { label: 'Forecast rainfall', value: `${heavy.precipitation.toFixed(0)}mm on ${heavy.date}`, impact: 'negative' },
             { label: 'Waterlogging flag', value: 'Enabled for this block', impact: 'negative' },
           ],
+          downgradeReasons: downgradeReasonsFromGate(rainGate),
+          assumptions: assumptionsFromGate(rainGate),
         });
       }
     }
@@ -574,12 +588,22 @@ export function computeRecommendations(
       if (p.moisture != null) {
         freshMoistureSeen = true;
         if (p.moisture > t.highMoisturePct) {
+          const wetGate = resolveRecommendationGrade({
+            engine: 'drainage',
+            input: {
+              kind: 'wet-probe',
+              probeFresh: true,
+              probeExceedsThreshold: true,
+              waterloggingFlag: !!v.waterlogging_risk,
+              isDemo: input.isDemoMode,
+            },
+          });
           out.push({
             id: `wet-${p.id}`,
             kind: 'drainage',
             priority: 'medium',
-            confidence: 'high',
-            grade: 'operational',
+            confidence: wetGate.confidence,
+            grade: wetGate.grade,
             title: `Soil trending wet · ${v.name}`,
             reason: `${p.name} at ${p.moisture.toFixed(0)}% (above ${t.highMoisturePct}%). Recommended inspection of drainage and holding irrigation.`,
             vineyardId: v.id,
@@ -591,6 +615,8 @@ export function computeRecommendations(
               { label: 'Probe moisture', value: `${p.moisture.toFixed(0)}%`, impact: 'negative' },
               { label: 'High-moisture threshold', value: `${t.highMoisturePct}%` },
             ],
+            downgradeReasons: downgradeReasonsFromGate(wetGate),
+            assumptions: assumptionsFromGate(wetGate),
           });
         }
       }
