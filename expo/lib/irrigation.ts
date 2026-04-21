@@ -2,6 +2,16 @@ import type { DbVineyard } from '@/providers/VineyardProvider';
 import type { WeatherForecast, WeatherSeason, DailyWeather, ForecastDay } from '@/lib/weather';
 import { evaluateTrust, isStale, type DataTrust } from '@/lib/dataTrust';
 import { getIrrigationDecisionGrade } from '@/lib/decisionGrade';
+import {
+  computeIrrigationCalibration,
+  effectiveRainfall,
+  analyzeProbeTrend,
+  describeEtSource,
+  type IrrigationCalibration,
+  type ProbeReadingPoint,
+  type ProbeTrendResult,
+  type EtTransparency,
+} from '@/lib/irrigationCalibration';
 
 export type IrrigationState =
   | 'no-irrigation'
@@ -57,6 +67,10 @@ export interface IrrigationRecommendation {
   appRateMmHr: number | null;
   distributionEfficiency: number;
   gradeResult: import('@/lib/decisionGrade').DecisionGradeResult;
+  calibration: IrrigationCalibration;
+  probeTrend: ProbeTrendResult | null;
+  etTransparency: EtTransparency;
+  rainEffectivenessNotes: string[];
 }
 
 export interface IrrigationInput {
@@ -65,6 +79,7 @@ export interface IrrigationInput {
   forecast: WeatherForecast | null;
   probeMoisturePct: number | null;
   probeObservedAt: string | null;
+  probeHistory?: ProbeReadingPoint[];
   isDemoMode?: boolean;
 }
 
@@ -77,12 +92,7 @@ const DEFAULTS = {
   distributionEff: 0.85,
 };
 
-function effectiveRain(rain: number): number {
-  if (rain <= 0) return 0;
-  if (rain <= 5) return rain * 0.6;
-  if (rain <= 25) return 5 * 0.6 + (rain - 5) * 0.8;
-  return 5 * 0.6 + 20 * 0.8 + (rain - 25) * 0.5;
-}
+
 
 function approxEto(tMean: number, tMax: number, tMin: number): number {
   if (!Number.isFinite(tMean) || !Number.isFinite(tMax) || !Number.isFinite(tMin)) return 0;
@@ -102,6 +112,20 @@ export function computeIrrigation(input: IrrigationInput): IrrigationRecommendat
   const { vineyard, season, forecast, probeMoisturePct, probeObservedAt } = input;
   const now = new Date();
   const nowIso = now.toISOString();
+
+  const calibration = computeIrrigationCalibration(vineyard);
+  const rainCtx = {
+    soilType: vineyard.soil_type ?? null,
+    drainageNotes: vineyard.drainage_notes ?? null,
+    slopePct: vineyard.slope_pct ?? null,
+    waterloggingRisk: vineyard.waterlogging_risk ?? null,
+  };
+  const rainEffectivenessNotesSet = new Set<string>();
+  function effectiveRain(rain: number): number {
+    const res = effectiveRainfall(rain, rainCtx);
+    res.notes.forEach((n) => rainEffectivenessNotesSet.add(n));
+    return res.effectiveMm;
+  }
 
   const kc = cropCoefficientFor(vineyard);
   const rootZoneCm = vineyard.root_zone_depth_cm ?? DEFAULTS.rootZoneCm;
@@ -180,14 +204,17 @@ export function computeIrrigation(input: IrrigationInput): IrrigationRecommendat
   // Blend with probe data when available and fresh
   let usedProbeData = false;
   const probeFresh = !!probeObservedAt && !isStale('probe', probeObservedAt);
+  const soilLc = (vineyard.soil_type ?? '').toLowerCase();
+  let fc = 35;
+  let wp = 12;
+  if (soilLc.includes('sand') || soilLc.includes('gravel')) { fc = 22; wp = 8; }
+  else if (soilLc.includes('clay') && !soilLc.includes('loam')) { fc = 42; wp = 20; }
+  else if (soilLc.includes('silt')) { fc = 38; wp = 13; }
   if (probeFresh && probeMoisturePct != null && awc_mm > 0) {
-    // Map moisture% to available water remaining.
-    // Assume field capacity ~35%, wilting point ~12% for a loam baseline.
-    const fc = 35;
-    const wp = 12;
     const avail = Math.max(0, Math.min(1, (probeMoisturePct - wp) / (fc - wp)));
     const probeDeficit = awc_mm * (1 - avail);
-    currentDeficitMm = 0.6 * probeDeficit + 0.4 * running;
+    const probeWeight = calibration.label === 'calibrated' ? 0.7 : 0.6;
+    currentDeficitMm = probeWeight * probeDeficit + (1 - probeWeight) * running;
     usedProbeData = true;
   }
 
@@ -257,6 +284,13 @@ export function computeIrrigation(input: IrrigationInput): IrrigationRecommendat
     if (usedProbeData && !seasonStale && forecastOk) confidence = 'high';
     else if (!seasonStale && forecastOk) confidence = 'medium';
     else confidence = 'low';
+
+    if (calibration.label === 'default-based' && confidence === 'high') {
+      confidence = 'medium';
+    }
+    if (calibration.label === 'default-based' && confidence === 'medium') {
+      confidence = 'low';
+    }
   }
 
   // Suggested application: refill to ~80% of MAD above current
@@ -320,7 +354,39 @@ export function computeIrrigation(input: IrrigationInput): IrrigationRecommendat
     });
   }
 
+  reasoning.push({
+    label: 'Calibration',
+    value:
+      calibration.label === 'calibrated'
+        ? 'Calibrated'
+        : calibration.label === 'semi-calibrated'
+        ? 'Semi-calibrated'
+        : 'Default-based',
+    impact:
+      calibration.label === 'calibrated'
+        ? 'positive'
+        : calibration.label === 'default-based'
+        ? 'negative'
+        : 'neutral',
+  });
+
+  reasoning.push({
+    label: 'ET source',
+    value: describeEtSource(season?.sourceType ?? null).label,
+    impact: 'neutral',
+  });
+
   const combinedHistory = [...historyEntries, ...forecastEntries];
+
+  const probeTrend =
+    input.probeHistory && input.probeHistory.length > 0
+      ? analyzeProbeTrend(input.probeHistory)
+      : probeMoisturePct != null && probeObservedAt
+      ? analyzeProbeTrend([{ observedAt: probeObservedAt, moisturePct: probeMoisturePct }])
+      : null;
+
+  const etTransparency = describeEtSource(season?.sourceType ?? null);
+  const rainEffectivenessNotes = Array.from(rainEffectivenessNotesSet);
 
   const gradeResult = getIrrigationDecisionGrade({
     vineyard,
@@ -378,6 +444,10 @@ export function computeIrrigation(input: IrrigationInput): IrrigationRecommendat
     appRateMmHr,
     distributionEfficiency: distributionEff,
     gradeResult,
+    calibration,
+    probeTrend,
+    etTransparency,
+    rainEffectivenessNotes,
   };
 }
 

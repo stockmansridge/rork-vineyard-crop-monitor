@@ -19,6 +19,7 @@ import {
   type IrrigationRecommendation,
   type IrrigationReasoning,
 } from '@/lib/irrigation';
+import { calibrationColor } from '@/lib/irrigationCalibration';
 
 interface Props {
   recommendation: IrrigationRecommendation | null;
@@ -153,6 +154,54 @@ export default function IrrigationCard({
         </View>
       )}
 
+      {(() => {
+        const cal = recommendation.calibration;
+        const c = calibrationColor(cal.label);
+        const calLabel =
+          cal.label === 'calibrated'
+            ? 'Calibrated'
+            : cal.label === 'semi-calibrated'
+            ? 'Semi-calibrated'
+            : 'Default-based';
+        return (
+          <View
+            style={[
+              styles.calibrationBanner,
+              { backgroundColor: c.bg, borderColor: c.border },
+            ]}
+            testID="irrigation-calibration"
+          >
+            <View style={[styles.calibrationDot, { backgroundColor: c.color }]} />
+            <View style={styles.calibrationTextWrap}>
+              <Text style={[styles.calibrationLabel, { color: c.color }]}>
+                {calLabel} · {cal.configuredCount}/{cal.totalCount} inputs
+              </Text>
+              <Text style={styles.calibrationSummary} numberOfLines={2}>
+                {cal.summary}
+              </Text>
+            </View>
+          </View>
+        );
+      })()}
+
+      {recommendation.probeTrend && recommendation.probeTrend.usable && (
+        <View style={styles.probeTrendRow}>
+          <Text style={styles.probeTrendLabel}>Probe trend</Text>
+          <Text style={styles.probeTrendValue}>
+            {recommendation.probeTrend.trend === 'drying'
+              ? `Drying ${Math.abs(recommendation.probeTrend.dryDownPctPerDay ?? 0).toFixed(2)}%/day`
+              : recommendation.probeTrend.trend === 'wetting'
+              ? `Wetting ${(recommendation.probeTrend.dryDownPctPerDay ?? 0).toFixed(2)}%/day`
+              : recommendation.probeTrend.trend === 'stable'
+              ? 'Stable'
+              : 'Not enough points'}
+            {recommendation.probeTrend.freshnessHours != null
+              ? ` · ${Math.round(recommendation.probeTrend.freshnessHours)}h old`
+              : ''}
+          </Text>
+        </View>
+      )}
+
       {recommendation.missingInputs.length > 0 && onEditProfile && (
         <Pressable
           style={({ pressed }) => [styles.missingBanner, pressed && styles.pressed]}
@@ -195,6 +244,43 @@ export default function IrrigationCard({
               </View>
             );
           })}
+
+          {recommendation.rainEffectivenessNotes.length > 0 && (
+            <View style={styles.noteBlock}>
+              <Text style={styles.noteBlockTitle}>Rain effectiveness</Text>
+              {recommendation.rainEffectivenessNotes.map((n) => (
+                <Text key={n} style={styles.noteBlockText}>
+                  · {n}
+                </Text>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.noteBlock}>
+            <Text style={styles.noteBlockTitle}>ET transparency</Text>
+            <Text style={styles.noteBlockText}>
+              {recommendation.etTransparency.note}
+            </Text>
+          </View>
+
+          {recommendation.calibration.defaultsUsed.length > 0 && (
+            <View style={styles.noteBlock}>
+              <Text style={styles.noteBlockTitle}>Defaults in use</Text>
+              <Text style={styles.noteBlockText}>
+                {recommendation.calibration.defaultsUsed.join(', ')}
+              </Text>
+            </View>
+          )}
+
+          {recommendation.calibration.missing.length > 0 && (
+            <View style={styles.noteBlock}>
+              <Text style={styles.noteBlockTitle}>Missing inputs</Text>
+              <Text style={styles.noteBlockText}>
+                {recommendation.calibration.missing.join(', ')}
+              </Text>
+            </View>
+          )}
+
           <View style={styles.generatedRow}>
             <Clock size={10} color={Colors.textMuted} />
             <Text style={styles.generatedText}>
@@ -422,5 +508,75 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.7,
+  },
+  calibrationBanner: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 10,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  calibrationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  calibrationTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  calibrationLabel: {
+    fontSize: 12,
+    fontWeight: '800' as const,
+    letterSpacing: 0.3,
+  },
+  calibrationSummary: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  probeTrendRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: Colors.backgroundAlt,
+  },
+  probeTrendLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700' as const,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.4,
+  },
+  probeTrendValue: {
+    color: Colors.text,
+    fontSize: 12,
+    fontWeight: '700' as const,
+  },
+  noteBlock: {
+    marginTop: 4,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.cardBorder,
+    gap: 2,
+  },
+  noteBlockTitle: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: '700' as const,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+  },
+  noteBlockText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    lineHeight: 15,
   },
 });
