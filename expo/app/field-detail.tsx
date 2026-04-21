@@ -24,6 +24,8 @@ import { assessAll } from '@/lib/weatherDecisions';
 import { useScoutTasks } from '@/providers/ScoutTasksProvider';
 import { statusLabel, triggerLabel } from '@/lib/scoutTasks';
 import BlockHistoryCard from '@/components/BlockHistoryCard';
+import BlockReadinessCard from '@/components/BlockReadinessCard';
+import { useBlockReadiness } from '@/hooks/useBlockReadiness';
 
 export default function FieldDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -65,6 +67,7 @@ export default function FieldDetailScreen() {
   const irrigation = useIrrigation(vineyard);
   const forecastQ = useForecast(vineyard.latitude, vineyard.longitude);
   const decisions = assessAll(forecastQ.data ?? null, vineyard, { isDemo: isDemoMode });
+  const readiness = useBlockReadiness(vineyard);
   const plantYear = vineyard.planting_date ? new Date(vineyard.planting_date).getFullYear() : null;
   const age = plantYear ? new Date().getFullYear() - plantYear : null;
 
@@ -366,6 +369,10 @@ export default function FieldDetailScreen() {
             ))
           )}
         </View>
+
+        {readiness && (
+          <BlockReadinessCard vineyardId={vineyard.id} snapshot={readiness} />
+        )}
 
         <BlockHistoryCard vineyardId={vineyard.id} tasks={scoutTasks} />
 

@@ -1,17 +1,22 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Plus, MapPin, ChevronRight, Inbox } from 'lucide-react-native';
+import { Plus, MapPin, ChevronRight, Inbox, Gauge } from 'lucide-react-native';
 import { Stack } from 'expo-router';
 import Colors from '@/constants/colors';
 import HealthBar from '@/components/HealthBar';
 import { useVineyards } from '@/providers/VineyardProvider';
 import { useAuth } from '@/providers/AuthProvider';
+import { useBlockSeasons } from '@/providers/BlockSeasonsProvider';
+import { useIndexReadings } from '@/providers/IndexReadingsProvider';
+import { computeBlockReadiness, readinessColor, readinessStateLabel } from '@/lib/blockReadiness';
 
 export default function FieldsScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { vineyards, isLoading, isRefetching, refetch } = useVineyards();
+  const { getVineyardSeasons } = useBlockSeasons();
+  const { readings } = useIndexReadings();
 
   const totalArea = vineyards.reduce((sum, v) => sum + v.area, 0);
 
@@ -78,6 +83,12 @@ export default function FieldsScreen() {
             ) : (
               vineyards.map((vineyard) => {
                 const isShared = vineyard.owner_id !== user?.id;
+                const readiness = computeBlockReadiness({
+                  vineyard,
+                  seasons: getVineyardSeasons(vineyard.id).sort((a, b) => b.season - a.season),
+                  indexReadings: readings,
+                });
+                const readinessCfg = readinessColor(readiness.overallState);
                 return (
                   <Pressable
                     key={vineyard.id}
@@ -116,6 +127,21 @@ export default function FieldsScreen() {
                         <View style={styles.healthBarContainer}>
                           <HealthBar score={vineyard.health_score} height={5} />
                         </View>
+                      </View>
+                      <View
+                        style={[
+                          styles.readinessRow,
+                          { backgroundColor: readinessCfg.bg, borderColor: readinessCfg.border },
+                        ]}
+                      >
+                        <Gauge size={12} color={readinessCfg.color} />
+                        <Text style={[styles.readinessLabel, { color: readinessCfg.color }]}>
+                          {readinessStateLabel(readiness.overallState)}
+                        </Text>
+                        <View style={[styles.readinessDot, { backgroundColor: readinessCfg.color + '60' }]} />
+                        <Text style={styles.readinessMeta} numberOfLines={1}>
+                          {Math.round(readiness.overallScore * 100)}% configured
+                        </Text>
                       </View>
                     </View>
                   </Pressable>
@@ -284,6 +310,32 @@ const styles = StyleSheet.create({
   },
   healthBarContainer: {
     flex: 1,
+  },
+  readinessRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignSelf: 'flex-start' as const,
+  },
+  readinessLabel: {
+    fontSize: 10,
+    fontWeight: '700' as const,
+    letterSpacing: 0.2,
+  },
+  readinessDot: {
+    width: 2,
+    height: 2,
+    borderRadius: 1,
+  },
+  readinessMeta: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: '600' as const,
   },
   bottomSpacer: {
     height: 20,
