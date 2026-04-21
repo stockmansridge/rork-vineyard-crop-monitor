@@ -16,6 +16,7 @@ import {
   Sparkles,
   ChevronRight,
   Zap,
+  Wrench,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import {
@@ -33,6 +34,53 @@ import { useAlerts } from '@/providers/AlertsProvider';
 import { useAuth } from '@/providers/AuthProvider';
 import { useScoutTasks } from '@/providers/ScoutTasksProvider';
 import { recommendationToDraft } from '@/lib/scoutTasks';
+import { summarizeBlockHistory } from '@/lib/blockHistory';
+
+type SectionKey = 'act-now' | 'inspect' | 'setup';
+
+interface SectionConfig {
+  key: SectionKey;
+  title: string;
+  subtitle: string;
+  Icon: typeof Zap;
+  accent: string;
+  accentBg: string;
+}
+
+const SECTIONS: Record<SectionKey, SectionConfig> = {
+  'act-now': {
+    key: 'act-now',
+    title: 'Act now',
+    subtitle: 'Operational recommendations backed by fresh, site-specific data',
+    Icon: Zap,
+    accent: Colors.primary,
+    accentBg: Colors.primaryMuted,
+  },
+  inspect: {
+    key: 'inspect',
+    title: 'Inspect / verify',
+    subtitle: 'Advisory signals that warrant a field check before acting',
+    Icon: Eye,
+    accent: Colors.warning,
+    accentBg: Colors.warningMuted,
+  },
+  setup: {
+    key: 'setup',
+    title: 'Data & setup attention',
+    subtitle: 'Stale data, missing inputs and readiness gaps weakening confidence',
+    Icon: Wrench,
+    accent: Colors.info,
+    accentBg: Colors.infoMuted,
+  },
+};
+
+function sectionForRec(rec: Recommendation): SectionKey {
+  if (rec.kind === 'stale-data' || rec.kind === 'setup') return 'setup';
+  if (rec.grade === 'insufficient-data') return 'setup';
+  if (rec.grade === 'operational') return 'act-now';
+  // advisory / inspect / monitor / info → inspect bucket
+  return 'inspect';
+}
 
 function priorityConfig(p: RecommendationPriority) {
   switch (p) {
@@ -93,50 +141,127 @@ function kindIcon(k: RecommendationKind) {
   }
 }
 
+const PRIORITY_WEIGHT: Record<RecommendationPriority, number> = {
+  critical: 100,
+  high: 60,
+  medium: 30,
+  low: 10,
+};
+const CONF_WEIGHT: Record<'high' | 'medium' | 'low', number> = {
+  high: 25,
+  medium: 12,
+  low: 0,
+};
+const GRADE_WEIGHT: Record<RecommendationGrade, number> = {
+  operational: 40,
+  advisory: 15,
+  inspect: 20,
+  monitor: 5,
+  info: 0,
+  'insufficient-data': 0,
+};
+
+function blockImportanceScore(areaHa: number | null | undefined): number {
+  if (!areaHa || areaHa <= 0) return 0;
+  // Log-scaled so huge blocks don't dominate, but >5ha still matters
+  return Math.min(20, Math.log2(areaHa + 1) * 6);
+}
+
+function scoreRecommendation(
+  rec: Recommendation,
+  blockAreaHa: number | null,
+  repeatBoost: number
+): number {
+  return (
+    PRIORITY_WEIGHT[rec.priority] +
+    CONF_WEIGHT[rec.confidence] +
+    GRADE_WEIGHT[rec.grade] +
+    blockImportanceScore(blockAreaHa) +
+    repeatBoost
+  );
+}
+
 function RecommendationRow({
   rec,
+  section,
   onPress,
   onScout,
   onExplain,
   existingTask,
+  emphasis,
 }: {
   rec: Recommendation;
+  section: SectionKey;
   onPress: () => void;
   onScout?: () => void;
   onExplain: () => void;
   existingTask: boolean;
+  emphasis: 'strong' | 'soft' | 'muted';
 }) {
   const cfg = priorityConfig(rec.priority);
   const gcfg = gradeColor(rec.grade);
   const Icon = kindIcon(rec.kind);
   const canScout = !!rec.vineyardId && rec.kind !== 'setup' && rec.kind !== 'spray-ok';
+
+  const rowStyles = [
+    styles.row,
+    emphasis === 'strong' && styles.rowStrong,
+    emphasis === 'muted' && styles.rowMuted,
+  ];
+
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+      style={({ pressed }) => [...rowStyles, pressed && styles.pressed]}
       testID={`rec-${rec.id}`}
     >
+      {emphasis === 'strong' && <View style={styles.strongBar} />}
       <View style={[styles.iconWrap, { backgroundColor: cfg.bg }]}>
         <Icon size={16} color={cfg.color} />
       </View>
       <View style={{ flex: 1 }}>
         <View style={styles.titleRow}>
-          <Text style={styles.title} numberOfLines={1}>{rec.title}</Text>
-          <View style={[styles.pill, { backgroundColor: cfg.bg }]}>
-            <Text style={[styles.pillText, { color: cfg.color }]}>{cfg.label}</Text>
-          </View>
+          <Text
+            style={[
+              styles.title,
+              emphasis === 'muted' && styles.titleMuted,
+            ]}
+            numberOfLines={1}
+          >
+            {rec.title}
+          </Text>
+          {section !== 'setup' && (
+            <View style={[styles.pill, { backgroundColor: cfg.bg }]}>
+              <Text style={[styles.pillText, { color: cfg.color }]}>{cfg.label}</Text>
+            </View>
+          )}
         </View>
-        <Text style={styles.reason} numberOfLines={2}>{rec.reason}</Text>
+        <Text
+          style={[
+            styles.reason,
+            emphasis === 'muted' && styles.reasonMuted,
+          ]}
+          numberOfLines={2}
+        >
+          {rec.reason}
+        </Text>
         <View style={styles.metaRow}>
-          <View style={[styles.gradeTag, { backgroundColor: gcfg.bg, borderColor: gcfg.color + '40' }]}>
+          <View
+            style={[
+              styles.gradeTag,
+              { backgroundColor: gcfg.bg, borderColor: gcfg.color + '40' },
+            ]}
+          >
             <Text style={[styles.gradeTagText, { color: gcfg.color }]}>
               {gradeLabel(rec.grade)}
             </Text>
           </View>
-          <View style={styles.conf}>
-            <ShieldCheck size={10} color={Colors.textMuted} />
-            <Text style={styles.confText}>{rec.confidence} confidence</Text>
-          </View>
+          {section !== 'setup' && (
+            <View style={styles.conf}>
+              <ShieldCheck size={10} color={Colors.textMuted} />
+              <Text style={styles.confText}>{rec.confidence} confidence</Text>
+            </View>
+          )}
         </View>
         <Pressable
           onPress={(e) => {
@@ -150,7 +275,7 @@ function RecommendationRow({
           <Info size={11} color={Colors.textSecondary} />
           <Text style={styles.explainBtnText}>Why this recommendation</Text>
         </Pressable>
-        {canScout && (
+        {canScout && section !== 'setup' && (
           <Pressable
             onPress={(e) => {
               e.stopPropagation();
@@ -165,9 +290,7 @@ function RecommendationRow({
             testID={`scout-btn-${rec.id}`}
           >
             <Eye size={11} color={existingTask ? Colors.primary : Colors.textSecondary} />
-            <Text
-              style={[styles.scoutBtnText, existingTask && { color: Colors.primary }]}
-            >
+            <Text style={[styles.scoutBtnText, existingTask && { color: Colors.primary }]}>
               {existingTask ? 'Open scout task' : 'Create scout task'}
             </Text>
           </Pressable>
@@ -175,6 +298,32 @@ function RecommendationRow({
       </View>
       <ChevronRight size={14} color={Colors.textMuted} />
     </Pressable>
+  );
+}
+
+function SectionHeader({
+  section,
+  count,
+}: {
+  section: SectionConfig;
+  count: number;
+}) {
+  const Icon = section.Icon;
+  return (
+    <View style={styles.sectionHeader} testID={`section-header-${section.key}`}>
+      <View style={[styles.sectionIcon, { backgroundColor: section.accentBg }]}>
+        <Icon size={14} color={section.accent} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <View style={styles.sectionTitleRow}>
+          <Text style={styles.sectionTitle}>{section.title}</Text>
+          <View style={[styles.countPill, { backgroundColor: section.accentBg }]}>
+            <Text style={[styles.countPillText, { color: section.accent }]}>{count}</Text>
+          </View>
+        </View>
+        <Text style={styles.sectionSubtitle}>{section.subtitle}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -222,7 +371,61 @@ export default function TodayActions() {
     [vineyards, forecasts, probeSnapshots, isDemoMode, prefs.thresholds, scoutTasks]
   );
 
-  const topRecs = useMemo(() => recs.slice(0, 5), [recs]);
+  const blockAreaById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const v of vineyards) {
+      const unit = (v.area_unit ?? 'ha').toLowerCase();
+      const areaHa = unit === 'ac' ? v.area * 0.404686 : v.area;
+      map.set(v.id, areaHa);
+    }
+    return map;
+  }, [vineyards]);
+
+  const repeatBoostById = useMemo(() => {
+    const map = new Map<string, number>();
+    const byVineyard = new Map<string, typeof scoutTasks>();
+    for (const t of scoutTasks) {
+      const list = byVineyard.get(t.vineyard_id) ?? [];
+      list.push(t);
+      byVineyard.set(t.vineyard_id, list);
+    }
+    for (const [vid, list] of byVineyard.entries()) {
+      if (list.length < 2) continue;
+      const summary = summarizeBlockHistory(list);
+      let score = 0;
+      score += summary.recurringTriggers.length * 8;
+      score += summary.persistentTriggers.length * 6;
+      score += Math.round(summary.confirmedRate * 10);
+      score -= Math.round(summary.falseAlarmRate * 10);
+      map.set(vid, score);
+    }
+    return map;
+  }, [scoutTasks]);
+
+  const grouped = useMemo(() => {
+    const buckets: Record<SectionKey, Recommendation[]> = {
+      'act-now': [],
+      inspect: [],
+      setup: [],
+    };
+    for (const rec of recs) {
+      buckets[sectionForRec(rec)].push(rec);
+    }
+    const rank = (rec: Recommendation): number => {
+      const area = rec.vineyardId ? blockAreaById.get(rec.vineyardId) ?? null : null;
+      const boost = rec.vineyardId ? repeatBoostById.get(rec.vineyardId) ?? 0 : 0;
+      return scoreRecommendation(rec, area, boost);
+    };
+    (Object.keys(buckets) as SectionKey[]).forEach((k) => {
+      buckets[k].sort((a, b) => rank(b) - rank(a));
+    });
+    return buckets;
+  }, [recs, blockAreaById, repeatBoostById]);
+
+  const totalCount = recs.length;
+  const actNow = grouped['act-now'];
+  const inspect = grouped.inspect;
+  const setup = grouped.setup;
 
   const handlePress = (rec: Recommendation) => {
     if (rec.action?.route) {
@@ -244,6 +447,41 @@ export default function TodayActions() {
     router.push({ pathname: '/scout-task-detail', params: { id: created.id } });
   };
 
+  const renderSection = (
+    cfg: SectionConfig,
+    items: Recommendation[],
+    emphasis: 'strong' | 'soft' | 'muted',
+    maxItems: number
+  ) => {
+    if (items.length === 0) return null;
+    const visible = items.slice(0, maxItems);
+    const remaining = items.length - visible.length;
+    return (
+      <View style={styles.section} testID={`section-${cfg.key}`}>
+        <SectionHeader section={cfg} count={items.length} />
+        <View style={styles.list}>
+          {visible.map((rec) => (
+            <RecommendationRow
+              key={rec.id}
+              rec={rec}
+              section={cfg.key}
+              onPress={() => handlePress(rec)}
+              onScout={() => void handleScout(rec)}
+              onExplain={() => setExplainRec(rec)}
+              existingTask={!!findByRecId(rec.id)}
+              emphasis={emphasis}
+            />
+          ))}
+          {remaining > 0 && (
+            <Text style={styles.moreText}>
+              +{remaining} more {cfg.title.toLowerCase()} item{remaining !== 1 ? 's' : ''}
+            </Text>
+          )}
+        </View>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container} testID="today-actions">
       <View style={styles.header}>
@@ -251,39 +489,34 @@ export default function TodayActions() {
           <View style={styles.headerIcon}>
             <Zap size={14} color={Colors.primary} />
           </View>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.headerTitle}>What to do today</Text>
             <Text style={styles.headerSub}>
-              {topRecs.length > 0
-                ? `${recs.length} action${recs.length !== 1 ? 's' : ''} across your estate`
+              {totalCount > 0
+                ? `${actNow.length} operational · ${inspect.length} to inspect · ${setup.length} data/setup`
                 : 'No priority actions right now'}
             </Text>
           </View>
         </View>
       </View>
 
-      {topRecs.length === 0 ? (
+      {totalCount === 0 ? (
         <View style={styles.emptyCard}>
           <ShieldCheck size={22} color={Colors.primary} />
           <Text style={styles.emptyTitle}>All clear</Text>
           <Text style={styles.emptyText}>
-            No immediate actions detected from current forecasts or probe data. Keep scouting blocks in person.
+            No immediate actions detected from current forecasts or probe data. Keep scouting
+            blocks in person.
           </Text>
         </View>
       ) : (
-        <View style={styles.list}>
-          {topRecs.map((rec) => (
-            <RecommendationRow
-              key={rec.id}
-              rec={rec}
-              onPress={() => handlePress(rec)}
-              onScout={() => void handleScout(rec)}
-              onExplain={() => setExplainRec(rec)}
-              existingTask={!!findByRecId(rec.id)}
-            />
-          ))}
+        <View style={styles.sectionsWrap}>
+          {renderSection(SECTIONS['act-now'], actNow, 'strong', 4)}
+          {renderSection(SECTIONS.inspect, inspect, 'soft', 4)}
+          {renderSection(SECTIONS.setup, setup, 'muted', 3)}
         </View>
       )}
+
       <RecommendationExplainModal
         recommendation={explainRec}
         visible={!!explainRec}
@@ -295,7 +528,7 @@ export default function TodayActions() {
 
 const styles = StyleSheet.create({
   container: {
-    gap: 12,
+    gap: 14,
   },
   header: {
     flexDirection: 'row' as const,
@@ -326,6 +559,51 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 1,
   },
+  sectionsWrap: {
+    gap: 18,
+  },
+  section: {
+    gap: 10,
+  },
+  sectionHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 10,
+  },
+  sectionIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+  },
+  sectionTitle: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '700' as const,
+    letterSpacing: 0.2,
+    textTransform: 'uppercase' as const,
+  },
+  sectionSubtitle: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  countPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: 999,
+  },
+  countPillText: {
+    fontSize: 11,
+    fontWeight: '800' as const,
+  },
   list: {
     gap: 8,
   },
@@ -338,6 +616,30 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
+  },
+  rowStrong: {
+    backgroundColor: Colors.cardHover,
+    borderColor: Colors.primary + '70',
+    borderWidth: 1.5,
+    paddingLeft: 16,
+    shadowColor: Colors.primary,
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  rowMuted: {
+    backgroundColor: Colors.backgroundAlt,
+    borderColor: Colors.cardBorder,
+    borderStyle: 'dashed' as const,
+  },
+  strongBar: {
+    position: 'absolute' as const,
+    left: 0,
+    top: 10,
+    bottom: 10,
+    width: 3,
+    borderRadius: 2,
+    backgroundColor: Colors.primary,
   },
   iconWrap: {
     width: 34,
@@ -358,6 +660,10 @@ const styles = StyleSheet.create({
     fontWeight: '700' as const,
     flex: 1,
   },
+  titleMuted: {
+    color: Colors.textSecondary,
+    fontWeight: '600' as const,
+  },
   pill: {
     paddingHorizontal: 7,
     paddingVertical: 2,
@@ -374,11 +680,15 @@ const styles = StyleSheet.create({
     marginTop: 3,
     lineHeight: 17,
   },
+  reasonMuted: {
+    color: Colors.textMuted,
+  },
   metaRow: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    gap: 4,
+    gap: 6,
     marginTop: 6,
+    flexWrap: 'wrap' as const,
   },
   conf: {
     flexDirection: 'row' as const,
@@ -390,11 +700,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600' as const,
     textTransform: 'capitalize' as const,
-  },
-  trustNote: {
-    color: Colors.textMuted,
-    fontSize: 10,
-    flex: 1,
   },
   gradeTag: {
     paddingHorizontal: 6,
@@ -468,5 +773,12 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 10,
     fontWeight: '700' as const,
+  },
+  moreText: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600' as const,
+    paddingHorizontal: 4,
+    paddingTop: 2,
   },
 });
