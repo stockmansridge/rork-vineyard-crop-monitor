@@ -53,8 +53,12 @@ function gradeColor(g: RecommendationGrade): { color: string; bg: string } {
       return { color: Colors.primary, bg: Colors.primaryMuted };
     case 'advisory':
       return { color: Colors.info, bg: Colors.infoMuted };
+    case 'inspect':
+      return { color: Colors.warning, bg: Colors.warningMuted };
     case 'monitor':
       return { color: Colors.secondary, bg: Colors.secondaryMuted };
+    case 'info':
+      return { color: Colors.textSecondary, bg: Colors.backgroundAlt };
     case 'insufficient-data':
       return { color: Colors.warning, bg: Colors.warningMuted };
   }

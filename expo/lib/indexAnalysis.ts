@@ -1,4 +1,5 @@
 import type { NdviSample } from '@/lib/ndvi';
+import { getSatelliteDecisionGrade, type DecisionGradeResult } from '@/lib/decisionGrade';
 
 export type IndexKey = 'NDVI' | 'NDRE' | 'MOISTURE';
 
@@ -43,6 +44,7 @@ export interface IndexAnalysis {
   headline: string;
   narrative: string;
   suggestedAction: string | null;
+  gradeResult: DecisionGradeResult;
 }
 
 const SIGNIFICANT_CHANGE: Record<IndexKey, number> = {
@@ -250,6 +252,7 @@ export interface AnalyzeInput {
   samples: NdviSample[];
   blockName: string;
   peers?: PeerBlockSnapshot[];
+  isDemo?: boolean;
 }
 
 export function analyzeIndexSeries(input: AnalyzeInput): IndexAnalysis {
@@ -300,12 +303,23 @@ export function analyzeIndexSeries(input: AnalyzeInput): IndexAnalysis {
   if (quality.quality === 'stale') anomaly *= 0.35;
   if (quality.quality === 'none') anomaly = 0;
 
-  const confidence: IndexAnalysis['confidence'] =
-    quality.quality === 'good'
-      ? 'high'
-      : quality.quality === 'fair'
-      ? 'medium'
-      : 'low';
+  const declineSignal =
+    (sceneDelta?.significant && sceneDelta.direction === 'down') ||
+    (baselineDelta?.significant && baselineDelta.direction === 'down') ||
+    (peerDelta?.significant && peerDelta.direction === 'down') ||
+    false;
+
+  const gradeResult = getSatelliteDecisionGrade({
+    latest,
+    sceneQuality: quality.quality,
+    sampleCount: samples.length,
+    hasBaseline: baselineMedian != null,
+    hasPeers: peerMedian != null,
+    isDemo: input.isDemo,
+    declineSignal: !!declineSignal,
+  });
+
+  const confidence: IndexAnalysis['confidence'] = gradeResult.confidence;
 
   const { headline, narrative, action } = latest
     ? narrativePieces(
@@ -335,11 +349,15 @@ export function analyzeIndexSeries(input: AnalyzeInput): IndexAnalysis {
     trendDirection: trend,
     sceneQuality: quality,
     anomalyScore: anomaly,
-    isDecisionGrade: quality.decisionGrade && latest?.sourceType !== 'simulated',
+    isDecisionGrade:
+      quality.decisionGrade &&
+      latest?.sourceType !== 'simulated' &&
+      gradeResult.blockers.length === 0,
     confidence,
     headline,
     narrative,
     suggestedAction: action,
+    gradeResult,
   };
 }
 

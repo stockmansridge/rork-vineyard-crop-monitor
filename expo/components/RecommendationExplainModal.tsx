@@ -10,6 +10,7 @@ import {
   TrendingDown,
   Minus,
   Sigma,
+  Eye,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import {
@@ -33,8 +34,12 @@ function gradeStyle(g: RecommendationGrade) {
       return { color: Colors.primary, bg: Colors.primaryMuted, Icon: ShieldCheck };
     case 'advisory':
       return { color: Colors.info, bg: Colors.infoMuted, Icon: Info };
+    case 'inspect':
+      return { color: Colors.warning, bg: Colors.warningMuted, Icon: Eye };
     case 'monitor':
       return { color: Colors.secondary, bg: Colors.secondaryMuted, Icon: Sigma };
+    case 'info':
+      return { color: Colors.textSecondary, bg: Colors.backgroundAlt, Icon: Info };
     case 'insufficient-data':
       return { color: Colors.warning, bg: Colors.warningMuted, Icon: AlertTriangle };
   }

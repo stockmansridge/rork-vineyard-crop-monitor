@@ -3,6 +3,11 @@ import type { DbVineyard } from '@/providers/VineyardProvider';
 import { isStale, type DataTrust } from '@/lib/dataTrust';
 import { computeIrrigation, toRecommendation as irrigationToRec } from '@/lib/irrigation';
 import { assessSpray, assessFrost, assessDisease } from '@/lib/weatherDecisions';
+import {
+  getSprayDecisionGrade,
+  getFrostDecisionGrade,
+  getDiseaseDecisionGrade,
+} from '@/lib/decisionGrade';
 import type { DbScoutTask, ScoutTriggerKind } from '@/lib/scoutTasks';
 import { triggerFromKind } from '@/lib/scoutTasks';
 import { summarizeBlockHistory, priorityBoostForTrigger } from '@/lib/blockHistory';
@@ -27,7 +32,9 @@ export type RecommendationConfidence = 'high' | 'medium' | 'low';
 export type RecommendationGrade =
   | 'operational'
   | 'advisory'
+  | 'inspect'
   | 'monitor'
+  | 'info'
   | 'insufficient-data';
 
 export interface RecommendationInput {
@@ -64,8 +71,12 @@ export function gradeLabel(g: RecommendationGrade): string {
       return 'Operational';
     case 'advisory':
       return 'Advisory';
+    case 'inspect':
+      return 'Inspect';
     case 'monitor':
       return 'Monitor only';
+    case 'info':
+      return 'Info';
     case 'insufficient-data':
       return 'Insufficient data';
   }
@@ -74,11 +85,15 @@ export function gradeLabel(g: RecommendationGrade): string {
 export function gradeDescription(g: RecommendationGrade): string {
   switch (g) {
     case 'operational':
-      return 'Supported by fresh, site-specific data — suitable for an operational decision.';
+      return 'Supported by fresh, site-specific, configured inputs — suitable for an operational decision.';
     case 'advisory':
       return 'Based on forecast or derived inputs. Use alongside a field check before acting.';
+    case 'inspect':
+      return 'Signals suggest a field inspection before taking any operational action.';
     case 'monitor':
       return 'Conditions worth watching. No action recommended yet.';
+    case 'info':
+      return 'Informational — no action required.';
     case 'insufficient-data':
       return 'Not enough fresh or site-specific data for a confident recommendation.';
   }
@@ -97,7 +112,9 @@ function inferGrade(
   if (priority === 'low' && (kind === 'spray-ok' || kind === 'disease-risk' || kind === 'inspect')) {
     return 'monitor';
   }
-  if (confidence === 'high' && usedObserved) return 'operational';
+  // Operational grade is never inferred here — it must come from an engine-specific
+  // decision-grade gate (see lib/decisionGrade.ts).
+  if (confidence === 'high' && usedObserved && (kind === 'drainage')) return 'operational';
   return 'advisory';
 }
 
@@ -215,13 +232,27 @@ export function computeRecommendations(
         isDemo: input.isDemoMode,
         currentHumidity: f.current?.humidity ?? null,
       });
+      const frostGate = getFrostDecisionGrade({
+        forecast: f,
+        current: f.current ?? null,
+        vineyard: v,
+        isDemo: input.isDemoMode,
+        severity:
+          frostA.status === 'critical'
+            ? 'critical'
+            : frostA.status === 'elevated'
+            ? 'elevated'
+            : frostA.status === 'watch'
+            ? 'monitor'
+            : 'none',
+      });
       if (frostA.status === 'critical' || frostA.status === 'elevated') {
         out.push({
           id: `frost-${v.id}-${frostA.coldestNight?.date ?? 'na'}`,
           kind: 'frost-watch',
           priority: frostA.status === 'critical' ? 'critical' : 'high',
-          confidence: frostA.confidence,
-          grade: 'advisory',
+          confidence: frostGate.confidence,
+          grade: frostGate.grade,
           title: `${frostA.headline} · ${v.name}`,
           reason: frostA.reasons.map((r) => r.label).join(' · ') || 'Overnight frost risk based on current forecast.',
           vineyardId: v.id,
@@ -238,8 +269,8 @@ export function computeRecommendations(
           id: `frost-watch-${v.id}-${frostA.coldestNight?.date ?? 'na'}`,
           kind: 'frost-watch',
           priority: 'medium',
-          confidence: frostA.confidence,
-          grade: 'monitor',
+          confidence: frostGate.confidence,
+          grade: frostGate.grade === 'insufficient-data' ? 'insufficient-data' : 'monitor',
           title: `Frost watch · ${v.name}`,
           reason: frostA.reasons.map((r) => r.label).join(' · ') || 'Monitor overnight temperatures based on current forecast.',
           vineyardId: v.id,
@@ -277,13 +308,26 @@ export function computeRecommendations(
       // Spray suitability
       if (today) {
         const sprayA = assessSpray(f, { isDemo: input.isDemoMode });
+        const sprayGate = getSprayDecisionGrade({
+          forecast: f,
+          current: f.current ?? null,
+          isDemo: input.isDemoMode,
+          severity:
+            sprayA.status === 'not-suitable'
+              ? 'elevated'
+              : sprayA.status === 'caution'
+              ? 'inspect'
+              : sprayA.status === 'suitable'
+              ? 'monitor'
+              : 'none',
+        });
         if (sprayA.status === 'not-suitable') {
           out.push({
             id: `avoid-spray-${v.id}-${today.date}`,
             kind: 'avoid-spray',
             priority: 'high',
-            confidence: sprayA.confidence,
-            grade: 'advisory',
+            confidence: sprayGate.confidence,
+            grade: sprayGate.grade,
             logicSummary: 'Spray window scored against wind, rain likelihood and temperature thresholds.',
             inputs: sprayA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
             title: `Not suitable for spraying · ${v.name}`,
@@ -303,8 +347,8 @@ export function computeRecommendations(
             id: `spray-caution-${v.id}-${today.date}`,
             kind: 'avoid-spray',
             priority: 'medium',
-            confidence: sprayA.confidence,
-            grade: 'advisory',
+            confidence: sprayGate.confidence,
+            grade: sprayGate.grade === 'operational' ? 'advisory' : sprayGate.grade,
             logicSummary: 'Marginal conditions on at least one spray parameter — treat as cautionary.',
             inputs: sprayA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
             title: `Spray with caution · ${v.name}`,
@@ -319,8 +363,8 @@ export function computeRecommendations(
             id: `spray-ok-${v.id}-${today.date}`,
             kind: 'spray-ok',
             priority: 'low',
-            confidence: sprayA.confidence,
-            grade: 'monitor',
+            confidence: sprayGate.confidence,
+            grade: sprayGate.grade === 'insufficient-data' ? 'insufficient-data' : 'monitor',
             logicSummary: 'All spray parameters currently within suitable ranges. Check field conditions before starting.',
             inputs: sprayA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
             title: `Spray window looks suitable · ${v.name}`,
@@ -353,13 +397,27 @@ export function computeRecommendations(
 
       // Disease-supportive conditions
       const diseaseA = assessDisease(f, v, f.current ?? null, { isDemo: input.isDemoMode });
+      const diseaseGate = getDiseaseDecisionGrade({
+        forecast: f,
+        current: f.current ?? null,
+        vineyard: v,
+        isDemo: input.isDemoMode,
+        severity:
+          diseaseA.status === 'inspect'
+            ? 'inspect'
+            : diseaseA.status === 'elevated'
+            ? 'elevated'
+            : diseaseA.status === 'monitor'
+            ? 'monitor'
+            : 'none',
+      });
       if (diseaseA.status === 'inspect' || diseaseA.status === 'elevated') {
         out.push({
           id: `disease-${v.id}`,
           kind: 'disease-risk',
           priority: diseaseA.status === 'inspect' ? 'high' : 'medium',
-          confidence: diseaseA.confidence,
-          grade: 'advisory',
+          confidence: diseaseGate.confidence,
+          grade: diseaseGate.grade,
           title: diseaseA.status === 'inspect' ? `Recommended inspection for disease · ${v.name}` : `Elevated disease-supportive conditions · ${v.name}`,
           reason: diseaseA.reasons.map((r) => r.label).join(' · ') || 'Conditions support canopy disease pressure.',
           vineyardId: v.id,
@@ -375,8 +433,8 @@ export function computeRecommendations(
           id: `disease-monitor-${v.id}`,
           kind: 'disease-risk',
           priority: 'low',
-          confidence: diseaseA.confidence,
-          grade: 'monitor',
+          confidence: diseaseGate.confidence,
+          grade: diseaseGate.grade === 'insufficient-data' ? 'insufficient-data' : 'monitor',
           title: `Monitor disease conditions · ${v.name}`,
           reason: diseaseA.reasons.map((r) => r.label).join(' · ') || 'Keep an eye on canopy conditions this week.',
           vineyardId: v.id,

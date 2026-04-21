@@ -1,6 +1,7 @@
 import type { DbVineyard } from '@/providers/VineyardProvider';
 import type { WeatherForecast, WeatherSeason, DailyWeather, ForecastDay } from '@/lib/weather';
 import { evaluateTrust, isStale, type DataTrust } from '@/lib/dataTrust';
+import { getIrrigationDecisionGrade } from '@/lib/decisionGrade';
 
 export type IrrigationState =
   | 'no-irrigation'
@@ -55,6 +56,7 @@ export interface IrrigationRecommendation {
   history: DailyBalanceDay[];
   appRateMmHr: number | null;
   distributionEfficiency: number;
+  gradeResult: import('@/lib/decisionGrade').DecisionGradeResult;
 }
 
 export interface IrrigationInput {
@@ -320,6 +322,16 @@ export function computeIrrigation(input: IrrigationInput): IrrigationRecommendat
 
   const combinedHistory = [...historyEntries, ...forecastEntries];
 
+  const gradeResult = getIrrigationDecisionGrade({
+    vineyard,
+    season,
+    forecast,
+    probeMoisturePct,
+    probeObservedAt,
+    isDemo: input.isDemoMode,
+    desiredState: state,
+  });
+
   const trust = evaluateTrust({
     sourceType: usedProbeData ? 'derived' : season ? 'derived' : 'estimated',
     sourceName: usedProbeData
@@ -365,6 +377,7 @@ export function computeIrrigation(input: IrrigationInput): IrrigationRecommendat
     history: combinedHistory,
     appRateMmHr,
     distributionEfficiency: distributionEff,
+    gradeResult,
   };
 }
 
@@ -387,17 +400,14 @@ export function toRecommendation(rec: IrrigationRecommendation): Recommendation 
     : rec.suggestedApplicationMm > 0
     ? ` → ${rec.suggestedApplicationMm.toFixed(1)}mm`
     : '';
-  const grade: Recommendation['grade'] =
-    rec.confidence === 'high' && rec.usedProbeData
-      ? 'operational'
-      : rec.confidence === 'low'
-      ? 'advisory'
-      : 'advisory';
+  const gate = rec.gradeResult;
+  const grade: Recommendation['grade'] = gate?.grade ?? 'advisory';
+  const effectiveConfidence: Recommendation['confidence'] = gate?.confidence ?? rec.confidence;
   return {
     id: `irr-${rec.vineyardId}-${rec.state}`,
     kind,
     priority,
-    confidence: rec.confidence,
+    confidence: effectiveConfidence,
     grade,
     title: rec.headline,
     reason: `${rec.detail}${runTxt}`,
@@ -406,8 +416,20 @@ export function toRecommendation(rec: IrrigationRecommendation): Recommendation 
     timestamp: rec.generatedAt,
     action: { label: 'Open block', route: `/field-detail?id=${rec.vineyardId}` },
     trustNote: rec.usedProbeData ? 'Water balance + probe' : 'Water balance · forecast',
-    logicSummary: 'FAO-56 style water balance: effective rain minus crop water use, bounded by the management-allowable depletion (MAD) threshold.',
-    inputs: rec.reasoning.map((r) => ({ label: r.label, value: r.value, impact: r.impact })),
+    logicSummary:
+      'FAO-56 style water balance: effective rain minus crop water use, bounded by the management-allowable depletion (MAD) threshold.' +
+      (gate && gate.defaultsUsed.length > 0
+        ? ` Confidence reduced — using defaults for: ${gate.defaultsUsed.join(', ')}.`
+        : ''),
+    inputs: [
+      ...rec.reasoning.map((r) => ({ label: r.label, value: r.value, impact: r.impact })),
+      ...(gate?.defaultsUsed.length
+        ? [{ label: 'Defaults in use', value: gate.defaultsUsed.join(', '), impact: 'negative' as const }]
+        : []),
+      ...(gate?.missingInputs.length
+        ? [{ label: 'Missing inputs', value: gate.missingInputs.join(', '), impact: 'negative' as const }]
+        : []),
+    ],
     freshnessNote: rec.usedProbeData ? 'Includes fresh probe input' : 'Forecast-only water balance',
   };
 }
