@@ -121,7 +121,7 @@ export default function VineyardLogScreen() {
       sprays: '/add-spray',
       harvests: '/add-harvest',
     };
-    router.push({ pathname: routes[tab], params: { id: vineyard.id } });
+    router.push({ pathname: routes[tab] as never, params: { id: vineyard.id } });
   };
 
   const confirmDelete = (fn: () => Promise<unknown>, label: string) => {

@@ -28,6 +28,7 @@ import {
   Wrench,
   Waves,
   NotebookPen,
+  Eye,
   User,
   CalendarClock,
   Repeat,
@@ -232,7 +233,7 @@ export default function ScoutTaskDetailScreen() {
           </View>
           {task.reason && <Text style={styles.reason}>{task.reason}</Text>}
           <View style={styles.badgeRow}>
-            <View style={[styles.badge, styles.statusBadge(task.status)]}>
+            <View style={[styles.badge, { backgroundColor: statusBg(task.status) }]}>
               <Text style={[styles.badgeText, { color: statusColor(task.status) }]}>
                 {statusLabel(task.status)}
               </Text>
@@ -614,8 +615,27 @@ function statusColor(s: ScoutStatus): string {
       return Colors.info;
     case 'resolved':
       return Colors.primary;
+    case 'monitoring':
+      return Colors.info;
     case 'ignored':
       return Colors.textMuted;
+    default:
+      return Colors.textMuted;
+  }
+}
+
+function statusBg(s: ScoutStatus): string {
+  switch (s) {
+    case 'open':
+      return Colors.warningMuted;
+    case 'in_progress':
+      return Colors.infoMuted;
+    case 'resolved':
+      return Colors.primaryMuted;
+    case 'monitoring':
+      return Colors.infoMuted;
+    default:
+      return Colors.backgroundAlt;
   }
 }
 
@@ -645,16 +665,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: Colors.backgroundAlt,
   },
-  statusBadge: (s: ScoutStatus) => ({
-    backgroundColor:
-      s === 'open'
-        ? Colors.warningMuted
-        : s === 'in_progress'
-        ? Colors.infoMuted
-        : s === 'resolved'
-        ? Colors.primaryMuted
-        : Colors.backgroundAlt,
-  }),
   badgeText: { fontSize: 10, fontWeight: '800' as const, letterSpacing: 0.3 },
   badgeSubText: { color: Colors.textMuted, fontSize: 10, fontWeight: '600' as const, textTransform: 'capitalize' as const },
   actionRow: { flexDirection: 'row' as const, gap: 8 },

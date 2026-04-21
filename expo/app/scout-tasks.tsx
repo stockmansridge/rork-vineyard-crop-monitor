@@ -48,7 +48,7 @@ function urgencyConfig(u: DbScoutTask['urgency']) {
   }
 }
 
-function statusConfig(s: ScoutStatus) {
+function statusConfig(s: ScoutStatus): { color: string; bg: string } {
   switch (s) {
     case 'open':
       return { color: Colors.warning, bg: Colors.warningMuted };
@@ -56,7 +56,11 @@ function statusConfig(s: ScoutStatus) {
       return { color: Colors.info, bg: Colors.infoMuted };
     case 'resolved':
       return { color: Colors.primary, bg: Colors.primaryMuted };
+    case 'monitoring':
+      return { color: Colors.info, bg: Colors.infoMuted };
     case 'ignored':
+      return { color: Colors.textMuted, bg: Colors.backgroundAlt };
+    default:
       return { color: Colors.textMuted, bg: Colors.backgroundAlt };
   }
 }

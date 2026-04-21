@@ -66,7 +66,7 @@ function n(v: string): number | null {
   return isNaN(parsed) ? null : parsed;
 }
 
-function s(v: string | null | undefined): string {
+function s(v: string | number | null | undefined): string {
   return v == null ? '' : String(v);
 }
 
