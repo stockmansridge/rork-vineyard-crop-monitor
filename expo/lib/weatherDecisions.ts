@@ -120,7 +120,7 @@ export function assessSpray(
     methodVersion: 'spray-v1',
     kind: 'weather-forecast',
     isDemo: opts?.isDemo,
-    note: 'Spray suitability derived from forecast wind, rain and temperature.',
+    note: 'Spray weather suitability derived from forecast wind, rain probability/amount and temperature. Advisory timing window only — verify local block conditions before spraying.',
   });
 
   if (!forecast || forecast.days.length === 0) {
@@ -154,10 +154,10 @@ export function assessSpray(
 
   const headline =
     todayClass.status === 'suitable'
-      ? 'Spray window looks suitable today'
+      ? 'Weather conditions currently suitable for spraying'
       : todayClass.status === 'caution'
-      ? 'Spray with caution today — marginal conditions'
-      : 'Not suitable for spraying today';
+      ? 'Marginal spray weather — verify local block conditions'
+      : 'Weather conditions currently unsuitable for spraying';
 
   const stale = isStale('weather-forecast', forecast.fetchedAt);
   const confidence: DecisionConfidence = stale ? 'low' : opts?.isDemo ? 'low' : 'medium';
@@ -365,11 +365,11 @@ export function assessAll(
 export function sprayStatusColor(status: SprayStatus): { label: string; bg: string; fg: string } {
   switch (status) {
     case 'suitable':
-      return { label: 'Spray OK', bg: '#1A4D2E', fg: '#4ADE80' };
+      return { label: 'Weather suitable', bg: '#1A4D2E', fg: '#4ADE80' };
     case 'caution':
-      return { label: 'Caution', bg: '#3D3015', fg: '#F59E0B' };
+      return { label: 'Marginal', bg: '#3D3015', fg: '#F59E0B' };
     case 'not-suitable':
-      return { label: 'Do not spray', bg: '#3D1515', fg: '#EF4444' };
+      return { label: 'Weather unsuitable', bg: '#3D1515', fg: '#EF4444' };
     default:
       return { label: 'Unknown', bg: '#1E3A2B', fg: '#8BA496' };
   }

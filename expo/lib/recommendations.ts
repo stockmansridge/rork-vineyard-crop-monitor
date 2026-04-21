@@ -410,9 +410,9 @@ export function computeRecommendations(
             priority: 'high',
             confidence: sprayGate.confidence,
             grade: sprayGate.grade,
-            logicSummary: 'Spray window scored against wind, rain likelihood and temperature thresholds.',
+            logicSummary: 'Spray weather suitability scored against forecast wind, gusts (if available), rain probability/amount, timing window and temperature. Forecast-only — no local field verification.',
             inputs: sprayA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
-            title: `Not suitable for spraying · ${v.name}`,
+            title: `Weather unsuitable for spraying · ${v.name}`,
             reason:
               sprayA.reasons
                 .filter((r) => r.impact === 'negative')
@@ -422,8 +422,11 @@ export function computeRecommendations(
             vineyardId: v.id,
             vineyardName: v.name,
             timestamp: today.date,
-            trustNote: 'Forecast-derived · advisory',
-            downgradeReasons: downgradeReasonsFromGate(sprayGate),
+            trustNote: 'Forecast-derived weather suitability · advisory timing window · verify local block conditions before spraying',
+            downgradeReasons: [
+              ...downgradeReasonsFromGate(sprayGate),
+              'Forecast-only weather suitability — no local field verification of wind, canopy wetness or block conditions.',
+            ],
             assumptions: assumptionsFromGate(sprayGate),
           });
         } else if (sprayA.status === 'caution') {
@@ -433,15 +436,18 @@ export function computeRecommendations(
             priority: 'medium',
             confidence: sprayGate.confidence,
             grade: sprayGate.grade === 'operational' ? 'advisory' : sprayGate.grade,
-            logicSummary: 'Marginal conditions on at least one spray parameter — treat as cautionary.',
+            logicSummary: 'Marginal forecast conditions on at least one spray weather parameter (wind, rain probability/amount, timing window). Advisory only — verify local block conditions.',
             inputs: sprayA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
-            title: `Spray with caution · ${v.name}`,
+            title: `Marginal spray weather · ${v.name}`,
             reason: sprayA.reasons.map((r) => r.label).join(' · '),
             vineyardId: v.id,
             vineyardName: v.name,
             timestamp: today.date,
-            trustNote: 'Forecast-derived · advisory',
-            downgradeReasons: downgradeReasonsFromGate(sprayGate),
+            trustNote: 'Forecast-derived weather suitability · advisory timing window · verify local block conditions before spraying',
+            downgradeReasons: [
+              ...downgradeReasonsFromGate(sprayGate),
+              'Forecast-only weather suitability — no local field verification of wind, canopy wetness or block conditions.',
+            ],
             assumptions: assumptionsFromGate(sprayGate),
           });
         } else if (sprayA.status === 'suitable') {
@@ -451,9 +457,9 @@ export function computeRecommendations(
             priority: 'low',
             confidence: sprayGate.confidence,
             grade: sprayGate.grade === 'insufficient-data' ? 'insufficient-data' : 'monitor',
-            logicSummary: 'All spray parameters currently within suitable ranges. Check field conditions before starting.',
+            logicSummary: 'Forecast wind, rain probability/amount and timing window currently within suitable ranges. Weather suitability only — verify local block conditions before spraying.',
             inputs: sprayA.reasons.map((r) => ({ label: r.label, value: '', impact: r.impact })),
-            title: `Spray window looks suitable · ${v.name}`,
+            title: `Spray weather currently suitable · ${v.name}`,
             reason: sprayA.reasons
               .filter((r) => r.impact === 'positive')
               .map((r) => r.label)
@@ -461,8 +467,11 @@ export function computeRecommendations(
             vineyardId: v.id,
             vineyardName: v.name,
             timestamp: today.date,
-            trustNote: 'Forecast-derived · advisory',
-            downgradeReasons: downgradeReasonsFromGate(sprayGate),
+            trustNote: 'Forecast-derived weather suitability · advisory timing window · verify local block conditions before spraying',
+            downgradeReasons: [
+              ...downgradeReasonsFromGate(sprayGate),
+              'Forecast-only weather suitability — no local field verification of wind, canopy wetness or block conditions.',
+            ],
             assumptions: assumptionsFromGate(sprayGate),
           });
         }

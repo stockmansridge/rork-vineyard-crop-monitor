@@ -67,7 +67,7 @@ export default function WeatherDecisionsCard({ decisions, testID }: Props) {
           <View style={[styles.sectionIcon, { backgroundColor: spray.bg }]}>
             <SprayCan size={14} color={spray.fg} />
           </View>
-          <Text style={styles.sectionTitle}>Spraying</Text>
+          <Text style={styles.sectionTitle}>Spray weather suitability</Text>
           <View style={[styles.pill, { backgroundColor: spray.bg, borderColor: spray.fg + '50' }]}>
             <Text style={[styles.pillText, { color: spray.fg }]}>{spray.label}</Text>
           </View>
@@ -76,10 +76,16 @@ export default function WeatherDecisionsCard({ decisions, testID }: Props) {
         <ReasonList reasons={decisions.spray.reasons} />
         {decisions.spray.nextWindow && decisions.spray.status !== 'suitable' && (
           <View style={styles.nextWindow}>
-            <Text style={styles.nextWindowLabel}>Next better window</Text>
+            <Text style={styles.nextWindowLabel}>Next advisory timing window</Text>
             <Text style={styles.nextWindowValue}>{decisions.spray.nextWindow.label}</Text>
           </View>
         )}
+        <View style={styles.advisoryBanner}>
+          <AlertCircle size={12} color={Colors.info} />
+          <Text style={styles.advisoryText}>
+            Forecast-only weather suitability. No local field verification — verify wind, canopy wetness and block conditions before spraying.
+          </Text>
+        </View>
         <View style={styles.trustRow}>
           <DataTrustBadge trust={decisions.spray.trust} compact />
         </View>
