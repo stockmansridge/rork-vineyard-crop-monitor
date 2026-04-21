@@ -24,6 +24,7 @@ import {
   engineLabel,
   readinessStateLabel,
   readinessColor,
+  READINESS_MEANING,
 } from '@/lib/blockReadiness';
 
 interface Props {
@@ -95,7 +96,7 @@ export default function BlockReadinessCard({ vineyardId, snapshot, testID }: Pro
       </View>
 
       <Text style={styles.subtitle}>
-        Higher readiness unlocks higher-confidence, operational recommendations.
+        Readiness means enough block inputs are configured for this advisory engine — not that the engine is fully mature or authoritative.
       </Text>
 
       <View style={styles.grid}>
@@ -167,6 +168,15 @@ export default function BlockReadinessCard({ vineyardId, snapshot, testID }: Pro
                     )}
                     <Text style={[styles.summaryText, { color: cfg.color }]}>
                       {detailEngine.summary}
+                    </Text>
+                  </View>
+
+                  <View style={styles.maturityBox} testID="readiness-maturity-note">
+                    <AlertTriangle size={12} color={Colors.textMuted} />
+                    <Text style={styles.maturityText}>
+                      {READINESS_MEANING}
+                      {'\n\n'}
+                      {detailEngine.maturityNote}
                     </Text>
                   </View>
 
@@ -416,6 +426,22 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800' as const,
     letterSpacing: 0.5,
+  },
+  maturityBox: {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    backgroundColor: Colors.backgroundAlt,
+  },
+  maturityText: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    flex: 1,
   },
   completeBtn: {
     flexDirection: 'row' as const,

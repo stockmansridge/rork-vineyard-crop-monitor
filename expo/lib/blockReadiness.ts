@@ -23,6 +23,8 @@ export interface ReadinessRequirement {
   hint?: string;
 }
 
+export type EngineMaturity = 'operational-capable' | 'advisory-only';
+
 export interface EngineReadiness {
   engine: ReadinessEngine;
   state: ReadinessState;
@@ -32,7 +34,39 @@ export interface EngineReadiness {
   criticalMissing: ReadinessRequirement[];
   summary: string;
   advisoryOnly: boolean;
+  maturity: EngineMaturity;
+  maturityNote: string;
 }
+
+export function engineMaturity(engine: ReadinessEngine): EngineMaturity {
+  switch (engine) {
+    case 'disease':
+    case 'frost':
+      return 'advisory-only';
+    case 'irrigation':
+    case 'satellite':
+    case 'scouting':
+      return 'operational-capable';
+  }
+}
+
+export function engineMaturityNote(engine: ReadinessEngine): string {
+  switch (engine) {
+    case 'disease':
+      return 'Disease engine remains advisory even when readiness is high — it supports decisions but should not replace in-field inspection.';
+    case 'frost':
+      return 'Frost engine remains advisory even when readiness is high — use alongside local forecast and on-block monitoring.';
+    case 'irrigation':
+      return 'Irrigation engine can reach operational grade when all critical inputs are configured and supporting data is fresh.';
+    case 'satellite':
+      return 'Satellite engine can produce operational-grade anomaly detection once enough scenes and a block baseline exist.';
+    case 'scouting':
+      return 'Scouting engine supports operational task workflows once the block is fully configured.';
+  }
+}
+
+export const READINESS_MEANING: string =
+  'Readiness reflects how many block inputs are configured for this advisory engine. It is not a measure of model certainty or authority.';
 
 export interface BlockReadinessSnapshot {
   vineyardId: string;
@@ -83,13 +117,20 @@ function summaryFor(
   criticalMissing: ReadinessRequirement[],
   missing: ReadinessRequirement[]
 ): string {
+  const maturity = engineMaturity(engine);
   if (state === 'high-confidence') {
-    return 'All inputs configured — recommendations can reach operational grade.';
+    if (maturity === 'advisory-only') {
+      return `All inputs configured. ${engineLabel(engine)} remains an advisory engine — use alongside field verification.`;
+    }
+    return 'All inputs configured — recommendations can reach operational grade when supporting data is fresh.';
   }
   if (state === 'ready') {
-    return missing.length > 0
-      ? `Ready. Missing ${missing.map((m) => m.label).join(', ')} would strengthen confidence.`
-      : 'Ready.';
+    const base = missing.length > 0
+      ? `Enough inputs configured. Missing ${missing.map((m) => m.label).join(', ')} would strengthen confidence.`
+      : 'Enough inputs configured for this advisory engine.';
+    return maturity === 'advisory-only'
+      ? `${base} ${engineLabel(engine)} stays advisory by design.`
+      : base;
   }
   if (state === 'partial') {
     if (criticalMissing.length > 0) {
@@ -320,7 +361,8 @@ function buildEngine(
 ): EngineReadiness {
   const { state, score, missing, satisfied, criticalMissing } = evaluate(requirements);
   const summary = summaryFor(engine, state, criticalMissing, missing);
-  const advisoryOnly = state !== 'high-confidence';
+  const maturity = engineMaturity(engine);
+  const advisoryOnly = maturity === 'advisory-only' || state !== 'high-confidence';
   return {
     engine,
     state,
@@ -330,6 +372,8 @@ function buildEngine(
     criticalMissing,
     summary,
     advisoryOnly,
+    maturity,
+    maturityNote: engineMaturityNote(engine),
   };
 }
 
