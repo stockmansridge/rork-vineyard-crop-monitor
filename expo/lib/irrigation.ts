@@ -452,6 +452,7 @@ export function computeIrrigation(input: IrrigationInput): IrrigationRecommendat
 }
 
 import type { Recommendation } from '@/lib/recommendations';
+import { downgradeReasonsFromGate, assumptionsFromGate } from '@/lib/recommendations';
 
 export function toRecommendation(rec: IrrigationRecommendation): Recommendation | null {
   if (rec.state === 'no-irrigation' && rec.urgency === 'none') {
@@ -501,6 +502,24 @@ export function toRecommendation(rec: IrrigationRecommendation): Recommendation 
         : []),
     ],
     freshnessNote: rec.usedProbeData ? 'Includes fresh probe input' : 'Forecast-only water balance',
+    downgradeReasons: [
+      ...downgradeReasonsFromGate(gate),
+      ...(rec.calibration.label === 'default-based'
+        ? ['Confidence reduced because this block is relying on default irrigation settings.']
+        : rec.calibration.label === 'semi-calibrated'
+        ? ['Some irrigation settings still use defaults — recommendation is semi-calibrated.']
+        : []),
+      ...(rec.usedProbeData ? [] : ['Recommendation is advisory because no fresh probe reading is available to ground-truth soil moisture.']),
+    ],
+    assumptions: [
+      ...assumptionsFromGate(gate),
+      ...(rec.etTransparency.isApproximation
+        ? [`${rec.etTransparency.label}: ${rec.etTransparency.note}`]
+        : []),
+      ...(rec.rainEffectivenessNotes.length > 0
+        ? [`Effective rainfall assumptions: ${rec.rainEffectivenessNotes.join('; ')}.`]
+        : []),
+    ],
   };
 }
 

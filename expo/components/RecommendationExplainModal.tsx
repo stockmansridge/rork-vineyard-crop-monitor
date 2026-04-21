@@ -19,6 +19,7 @@ import {
   type RecommendationInput,
   gradeLabel,
   gradeDescription,
+  gradeTagline,
 } from '@/lib/recommendations';
 import { freshnessLabel } from '@/lib/dataTrust';
 
@@ -99,6 +100,7 @@ export default function RecommendationExplainModal({
                 {gradeLabel(recommendation.grade)}
               </Text>
             </View>
+            <Text style={styles.gradeTag}>{gradeTagline(recommendation.grade)}</Text>
             <Text style={styles.gradeDesc}>{gradeDescription(recommendation.grade)}</Text>
 
             <View style={styles.section}>
@@ -107,6 +109,38 @@ export default function RecommendationExplainModal({
                 {recommendation.logicSummary ?? recommendation.reason}
               </Text>
             </View>
+
+            {recommendation.downgradeReasons && recommendation.downgradeReasons.length > 0 && (
+              <View style={[styles.section, styles.downgradeSection]}>
+                <View style={styles.downgradeHeader}>
+                  <AlertTriangle size={12} color={Colors.warning} />
+                  <Text style={[styles.sectionTitle, { color: Colors.warning }]}>
+                    Why confidence is reduced
+                  </Text>
+                </View>
+                {recommendation.downgradeReasons.map((r, i) => (
+                  <View key={`dg-${i}`} style={styles.bulletRow}>
+                    <Text style={styles.bulletDot}>•</Text>
+                    <Text style={styles.bulletText}>{r}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {recommendation.assumptions && recommendation.assumptions.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Assumptions made</Text>
+                <Text style={styles.assumptionsHint}>
+                  Where block setup is incomplete, the system has filled in with defaults or generalized values.
+                </Text>
+                {recommendation.assumptions.map((a, i) => (
+                  <View key={`as-${i}`} style={styles.bulletRow}>
+                    <Text style={styles.bulletDot}>•</Text>
+                    <Text style={styles.bulletText}>{a}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
 
             {recommendation.inputs && recommendation.inputs.length > 0 && (
               <View style={styles.section}>
@@ -234,11 +268,48 @@ const styles = StyleSheet.create({
     fontWeight: '800' as const,
     letterSpacing: 0.3,
   },
+  gradeTag: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700' as const,
+    marginTop: -8,
+  },
   gradeDesc: {
     color: Colors.textSecondary,
     fontSize: 12,
     lineHeight: 18,
-    marginTop: -8,
+    marginTop: -10,
+  },
+  downgradeSection: {
+    borderWidth: 1,
+    borderColor: Colors.warning + '40',
+    backgroundColor: Colors.warningMuted,
+  },
+  downgradeHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+  },
+  assumptionsHint: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontStyle: 'italic' as const,
+  },
+  bulletRow: {
+    flexDirection: 'row' as const,
+    gap: 6,
+  },
+  bulletDot: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  bulletText: {
+    color: Colors.text,
+    fontSize: 12,
+    lineHeight: 18,
+    flex: 1,
   },
   section: {
     gap: 8,

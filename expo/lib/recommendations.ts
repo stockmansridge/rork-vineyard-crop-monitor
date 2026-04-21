@@ -63,6 +63,8 @@ export interface Recommendation {
   logicSummary?: string;
   inputs?: RecommendationInput[];
   freshnessNote?: string;
+  downgradeReasons?: string[];
+  assumptions?: string[];
 }
 
 export function gradeLabel(g: RecommendationGrade): string {
@@ -85,17 +87,34 @@ export function gradeLabel(g: RecommendationGrade): string {
 export function gradeDescription(g: RecommendationGrade): string {
   switch (g) {
     case 'operational':
-      return 'Supported by fresh, site-specific, configured inputs — suitable for an operational decision.';
+      return 'This recommendation is suitable for operational use based on current block configuration and fresh supporting inputs.';
     case 'advisory':
-      return 'Based on forecast or derived inputs. Use alongside a field check before acting.';
+      return 'Based on current inputs, this is an advisory recommendation. Ground-truth in the field before acting.';
     case 'inspect':
-      return 'Signals suggest a field inspection before taking any operational action.';
+      return 'An inspection is recommended to verify whether this issue is present in field.';
     case 'monitor':
-      return 'Conditions worth watching. No action recommended yet.';
+      return 'Conditions suggest monitoring may be warranted. No action recommended yet.';
     case 'info':
-      return 'Informational — no action required.';
+      return 'Informational — no action required at this time.';
     case 'insufficient-data':
-      return 'Not enough fresh or site-specific data for a confident recommendation.';
+      return 'There is not enough fresh or site-specific data to make a confident recommendation.';
+  }
+}
+
+export function gradeTagline(g: RecommendationGrade): string {
+  switch (g) {
+    case 'operational':
+      return 'Operational — suitable for a management decision';
+    case 'advisory':
+      return 'Advisory only — verify before acting';
+    case 'inspect':
+      return 'Recommended inspection — confirm in field';
+    case 'monitor':
+      return 'Monitor only — no action yet';
+    case 'info':
+      return 'Informational';
+    case 'insufficient-data':
+      return 'Insufficient data — recommendation not decision-grade';
   }
 }
 
@@ -151,6 +170,62 @@ export const DEFAULT_REC_THRESHOLDS: RecommendationThresholds = {
 export function withGrade(rec: Recommendation, usedObserved: boolean = false): Recommendation {
   if (rec.grade) return rec;
   return { ...rec, grade: inferGrade(rec.confidence, rec.kind, rec.priority, usedObserved) };
+}
+
+import type { DecisionGradeResult } from '@/lib/decisionGrade';
+
+export function downgradeReasonsFromGate(
+  gate: DecisionGradeResult | null | undefined,
+  extras: { probeStale?: boolean; seasonStale?: boolean; forecastStale?: boolean; sceneQuality?: 'good' | 'fair' | 'poor' | 'stale' | 'none' } = {}
+): string[] {
+  const out: string[] = [];
+  if (!gate && !extras.probeStale && !extras.seasonStale && !extras.forecastStale && !extras.sceneQuality) return out;
+  if (gate?.blockers.length) {
+    for (const b of gate.blockers) {
+      out.push(`Recommendation blocked: ${b.toLowerCase()}.`);
+    }
+  }
+  if (gate?.defaultsUsed.length) {
+    out.push(
+      `Confidence reduced because ${gate.defaultsUsed.join(', ')} ${gate.defaultsUsed.length === 1 ? 'is' : 'are'} using default values.`
+    );
+  }
+  if (gate?.missingInputs.length) {
+    out.push(
+      `Confidence reduced because ${gate.missingInputs.join(', ')} ${gate.missingInputs.length === 1 ? 'is' : 'are'} missing from block setup.`
+    );
+  }
+  if (extras.probeStale) {
+    out.push('Recommendation is advisory because probe data is stale.');
+  }
+  if (extras.seasonStale) {
+    out.push('Confidence reduced because weather history is stale.');
+  }
+  if (extras.forecastStale) {
+    out.push('Confidence reduced because the weather forecast is stale.');
+  }
+  if (extras.sceneQuality === 'fair') {
+    out.push('Satellite anomaly is inspection-only because image quality is moderate.');
+  } else if (extras.sceneQuality === 'poor') {
+    out.push('Recommendation limited because satellite image quality is poor.');
+  } else if (extras.sceneQuality === 'stale') {
+    out.push('Confidence reduced because the latest satellite scene is past its useful window.');
+  }
+  return out;
+}
+
+export function assumptionsFromGate(
+  gate: DecisionGradeResult | null | undefined
+): string[] {
+  const out: string[] = [];
+  if (!gate) return out;
+  for (const d of gate.defaultsUsed) {
+    out.push(`${d}: using default value (not configured for this block).`);
+  }
+  for (const m of gate.missingInputs) {
+    out.push(`${m}: missing — generalized assumption applied.`);
+  }
+  return out;
 }
 
 const priorityOrder: Record<RecommendationPriority, number> = {
@@ -341,6 +416,8 @@ export function computeRecommendations(
             vineyardName: v.name,
             timestamp: today.date,
             trustNote: 'Forecast-derived · advisory',
+            downgradeReasons: downgradeReasonsFromGate(sprayGate),
+            assumptions: assumptionsFromGate(sprayGate),
           });
         } else if (sprayA.status === 'caution') {
           out.push({
@@ -357,6 +434,8 @@ export function computeRecommendations(
             vineyardName: v.name,
             timestamp: today.date,
             trustNote: 'Forecast-derived · advisory',
+            downgradeReasons: downgradeReasonsFromGate(sprayGate),
+            assumptions: assumptionsFromGate(sprayGate),
           });
         } else if (sprayA.status === 'suitable') {
           out.push({
@@ -376,6 +455,8 @@ export function computeRecommendations(
             vineyardName: v.name,
             timestamp: today.date,
             trustNote: 'Forecast-derived · advisory',
+            downgradeReasons: downgradeReasonsFromGate(sprayGate),
+            assumptions: assumptionsFromGate(sprayGate),
           });
         }
       }
