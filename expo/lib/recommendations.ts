@@ -581,13 +581,14 @@ export function computeRecommendations(
     const summary = summarizeBlockHistory(vineyardTasks);
     const trigger: ScoutTriggerKind = triggerFromKind(rec.kind);
     const boost = priorityBoostForTrigger(summary, trigger);
-    if (!boost.note) return rec;
+    if (!boost.note && !boost.followUpNote) return rec;
+    const combinedNote = [boost.note, boost.followUpNote].filter(Boolean).join(' · ');
     return {
       ...rec,
       priority: shiftUrgency(rec.priority, boost.urgencyBoost),
       confidence: shiftConfidence(rec.confidence, boost.confidenceBoost),
-      trustNote: boost.note,
-      reason: `${rec.reason} · ${boost.note}`,
+      trustNote: combinedNote || rec.trustNote,
+      reason: combinedNote ? `${rec.reason} · ${combinedNote}` : rec.reason,
     };
   });
 

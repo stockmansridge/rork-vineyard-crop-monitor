@@ -182,6 +182,20 @@ export default function BlockHistoryCard({ vineyardId, tasks }: Props) {
         </>
       )}
 
+      {summary.learningNotes.length > 0 && (
+        <>
+          <Text style={styles.sectionLabel}>Learning from outcomes</Text>
+          <View style={{ gap: 6 }}>
+            {summary.learningNotes.slice(0, 4).map((note, i) => (
+              <View key={`ln-${i}`} style={styles.learnBox}>
+                <ShieldCheck size={12} color={Colors.primary} />
+                <Text style={styles.learnText}>{note}</Text>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+
       {summary.falseAlarmRate > 0.4 && summary.totalInspections >= 3 && (
         <View style={styles.insightBox}>
           <AlertOctagon size={12} color={Colors.warning} />
@@ -195,6 +209,22 @@ export default function BlockHistoryCard({ vineyardId, tasks }: Props) {
           <Repeat size={12} color={Colors.danger} />
           <Text style={[styles.insightText, { color: Colors.danger }]}>
             Recurring patterns boost confidence and urgency for similar alerts on this block.
+          </Text>
+        </View>
+      )}
+      {summary.ineffectivenessRate > 0.3 && summary.totalInspections >= 3 && (
+        <View style={[styles.insightBox, { backgroundColor: Colors.dangerMuted }]}>
+          <AlertOctagon size={12} color={Colors.danger} />
+          <Text style={[styles.insightText, { color: Colors.danger }]}>
+            Previous responses here were often ineffective. Consider a stronger follow-up plan.
+          </Text>
+        </View>
+      )}
+      {summary.unresolvedCount >= 2 && (
+        <View style={styles.insightBox}>
+          <AlertOctagon size={12} color={Colors.warning} />
+          <Text style={styles.insightText}>
+            {summary.unresolvedCount} unresolved follow-ups on this block. Monitoring priority is raised.
           </Text>
         </View>
       )}
@@ -272,5 +302,14 @@ const styles = StyleSheet.create({
     padding: 9,
   },
   insightText: { color: Colors.warning, fontSize: 11, fontWeight: '600' as const, flex: 1, lineHeight: 15 },
+  learnBox: {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    gap: 6,
+    backgroundColor: Colors.primaryMuted,
+    borderRadius: 10,
+    padding: 9,
+  },
+  learnText: { color: Colors.primary, fontSize: 11, fontWeight: '600' as const, flex: 1, lineHeight: 15 },
   pressed: { opacity: 0.8 },
 });
