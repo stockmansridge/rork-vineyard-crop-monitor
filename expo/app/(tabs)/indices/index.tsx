@@ -93,6 +93,8 @@ export default function IndicesScreen() {
           samples,
           blockName: v.name,
           peers,
+          vineyard: v,
+          isDemo: isDemoMode,
         });
         return { vineyardId: v.id, name: v.name, analysis };
       })

@@ -11,6 +11,9 @@ import {
   Users,
   Crosshair,
   Lightbulb,
+  Eye,
+  Search,
+  MapPin,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import type { IndexAnalysis } from '@/lib/indexAnalysis';
@@ -75,6 +78,46 @@ export default function IndexAnalysisCard({ analysis, compact }: Props) {
         <Text style={styles.headline} numberOfLines={2}>
           {analysis.headline}
         </Text>
+      </View>
+
+      <View style={styles.categoryRow}>
+        {(() => {
+          const cat = analysis.outputCategory;
+          const cfg =
+            cat === 'corroborated-anomaly'
+              ? { label: 'Scouting priority', Icon: Search, tone: Colors.warning }
+              : cat === 'scouting-priority'
+              ? { label: 'Inspect (advisory)', Icon: Search, tone: Colors.info }
+              : cat === 'monitor'
+              ? { label: 'Monitor', Icon: Eye, tone: Colors.textSecondary }
+              : { label: 'Spatial context', Icon: Eye, tone: Colors.textMuted };
+          const Icon = cfg.Icon;
+          return (
+            <View style={[styles.categoryPill, { borderColor: cfg.tone + '40', backgroundColor: cfg.tone + '14' }]}>
+              <Icon size={11} color={cfg.tone} />
+              <Text style={[styles.categoryLabel, { color: cfg.tone }]}>{cfg.label}</Text>
+            </View>
+          );
+        })()}
+        {analysis.corroborated ? (
+          <View style={[styles.categoryPill, { borderColor: Colors.primary + '40', backgroundColor: Colors.primary + '12' }]}>
+            <ShieldCheck size={11} color={Colors.primary} />
+            <Text style={[styles.categoryLabel, { color: Colors.primary }]}>Corroborated</Text>
+          </View>
+        ) : analysis.anomalyRepeated ? (
+          <View style={[styles.categoryPill, { borderColor: Colors.warning + '40', backgroundColor: Colors.warning + '12' }]}>
+            <Clock size={11} color={Colors.warning} />
+            <Text style={[styles.categoryLabel, { color: Colors.warning }]}>Repeated</Text>
+          </View>
+        ) : null}
+        {analysis.locationHint ? (
+          <View style={[styles.categoryPill, { borderColor: Colors.cardBorder, backgroundColor: Colors.card }]}>
+            <MapPin size={11} color={Colors.textSecondary} />
+            <Text style={[styles.categoryLabel, { color: Colors.textSecondary }]} numberOfLines={1}>
+              {analysis.locationHint}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <Text style={styles.narrative}>{analysis.narrative}</Text>
@@ -272,5 +315,24 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 11,
     fontWeight: '600' as const,
+  },
+  categoryRow: {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 6,
+  },
+  categoryPill: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  categoryLabel: {
+    fontSize: 10,
+    fontWeight: '700' as const,
+    letterSpacing: 0.3,
   },
 });

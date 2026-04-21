@@ -67,6 +67,8 @@ export interface SatelliteGradeInput {
   hasPeers: boolean;
   isDemo?: boolean;
   declineSignal: boolean;
+  anomalyRepeated?: boolean;
+  corroborated?: boolean;
 }
 
 function confidenceFromScore(score: number): RecommendationConfidence {
@@ -380,29 +382,43 @@ export function getSatelliteDecisionGrade(input: SatelliteGradeInput): DecisionG
   if (!input.hasBaseline) defaultsUsed.push('Block baseline (not enough prior scenes)');
   if (!input.hasPeers) defaultsUsed.push('Peer comparison (no comparable blocks)');
   if (input.sampleCount < 3) missingInputs.push('Historical scenes (need ≥3 for trend)');
+  if (input.sampleCount < 5) missingInputs.push('Baseline history (need ≥5 scenes for a stable baseline)');
 
   let score = 0.2;
-  if (input.sceneQuality === 'good') score += 0.45;
-  else if (input.sceneQuality === 'fair') score += 0.25;
+  if (input.sceneQuality === 'good') score += 0.4;
+  else if (input.sceneQuality === 'fair') score += 0.15;
   if (input.hasBaseline) score += 0.15;
   if (input.hasPeers) score += 0.1;
-  if (input.sampleCount >= 4) score += 0.1;
+  if (input.sampleCount >= 5) score += 0.1;
+  if (input.corroborated) score += 0.05;
 
   const confidence = confidenceFromScore(score);
 
   // Satellite indices inform scouting — treat as advisory at best.
   const canBeOperational = false;
 
+  // Tighter severity ladder: most satellite outputs should resolve to monitor
+  // or inspect. Only corroborated anomalies on good, well-referenced scenes
+  // can earn 'inspect'; everything else stays advisory or softer.
+  const strongScene =
+    input.sceneQuality === 'good' && input.hasBaseline && input.sampleCount >= 5;
+  const canInspect = strongScene && (input.corroborated === true || input.anomalyRepeated === true);
+
   const desiredSeverity: 'info' | 'monitor' | 'inspect' | 'advisory' | 'operational' =
     input.declineSignal
-      ? input.sceneQuality === 'good' && input.hasBaseline
+      ? canInspect
         ? 'inspect'
-        : 'advisory'
+        : input.sceneQuality === 'good'
+        ? 'advisory'
+        : 'monitor'
       : 'monitor';
 
   const grade = finalizeGrade(desiredSeverity, canBeOperational, confidence, blockers);
   if (blockers.length === 0) {
     notes.push('Satellite signals support scouting — not standalone operational decisions');
+    if (input.declineSignal && !canInspect) {
+      notes.push('Single-source or weakly referenced signal — keep as advisory until corroborated');
+    }
   }
 
   return {

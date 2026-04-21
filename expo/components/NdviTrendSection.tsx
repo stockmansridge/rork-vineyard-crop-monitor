@@ -24,6 +24,10 @@ export default function NdviTrendSection({ vineyardId, polygon, blockName }: Pro
   const { samples, isLoading, isFetching } = useNdviSeries(vineyardId, polygon, 6, kind);
   const { vineyards } = useVineyards();
   const { readings } = useIndexReadings();
+  const vineyard = useMemo(
+    () => vineyards.find((v) => v.id === vineyardId) ?? null,
+    [vineyards, vineyardId]
+  );
 
   const points = useMemo<SeriesPoint[]>(
     () =>
@@ -58,8 +62,9 @@ export default function NdviTrendSection({ vineyardId, polygon, blockName }: Pro
         samples,
         blockName,
         peers,
+        vineyard,
       }),
-    [kind, samples, blockName, peers]
+    [kind, samples, blockName, peers, vineyard]
   );
 
   const last = samples.length > 0 ? samples[samples.length - 1] : null;
