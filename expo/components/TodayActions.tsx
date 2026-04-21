@@ -142,29 +142,43 @@ function kindIcon(k: RecommendationKind) {
 }
 
 const PRIORITY_WEIGHT: Record<RecommendationPriority, number> = {
-  critical: 100,
-  high: 60,
-  medium: 30,
+  critical: 140,
+  high: 75,
+  medium: 32,
   low: 10,
 };
 const CONF_WEIGHT: Record<'high' | 'medium' | 'low', number> = {
-  high: 25,
-  medium: 12,
+  high: 30,
+  medium: 14,
   low: 0,
 };
 const GRADE_WEIGHT: Record<RecommendationGrade, number> = {
-  operational: 40,
-  advisory: 15,
-  inspect: 20,
-  monitor: 5,
+  operational: 55,
+  inspect: 28,
+  advisory: 14,
+  monitor: 4,
   info: 0,
-  'insufficient-data': 0,
+  'insufficient-data': -5,
+};
+
+const KIND_BUSINESS_WEIGHT: Partial<Record<RecommendationKind, number>> = {
+  'frost-watch': 18,
+  'disease-risk': 10,
+  drainage: 10,
+  irrigate: 8,
+  'hold-irrigation': 6,
+  'avoid-spray': 6,
+  'heat-watch': 8,
+  'spray-ok': 2,
+  inspect: 2,
+  'stale-data': -8,
+  setup: -10,
 };
 
 function blockImportanceScore(areaHa: number | null | undefined): number {
   if (!areaHa || areaHa <= 0) return 0;
   // Log-scaled so huge blocks don't dominate, but >5ha still matters
-  return Math.min(20, Math.log2(areaHa + 1) * 6);
+  return Math.min(24, Math.log2(areaHa + 1) * 7);
 }
 
 function scoreRecommendation(
@@ -172,12 +186,23 @@ function scoreRecommendation(
   blockAreaHa: number | null,
   repeatBoost: number
 ): number {
+  const kindWeight = KIND_BUSINESS_WEIGHT[rec.kind] ?? 0;
+  // System notices without a block (setup/stale/insufficient-data) should never
+  // outrank real block actions within the same section.
+  const systemNoticePenalty =
+    !rec.vineyardId || rec.kind === 'setup' || rec.kind === 'stale-data' ? -18 : 0;
+  // Slight boost for recs that already carry downgrade reasons resolved — they
+  // have been through the full grading framework rather than being defaults.
+  const resolvedBoost = rec.downgradeReasons && rec.downgradeReasons.length === 0 ? 3 : 0;
   return (
     PRIORITY_WEIGHT[rec.priority] +
     CONF_WEIGHT[rec.confidence] +
     GRADE_WEIGHT[rec.grade] +
+    kindWeight +
     blockImportanceScore(blockAreaHa) +
-    repeatBoost
+    repeatBoost +
+    systemNoticePenalty +
+    resolvedBoost
   );
 }
 
@@ -393,10 +418,13 @@ export default function TodayActions() {
       if (list.length < 2) continue;
       const summary = summarizeBlockHistory(list);
       let score = 0;
-      score += summary.recurringTriggers.length * 8;
-      score += summary.persistentTriggers.length * 6;
-      score += Math.round(summary.confirmedRate * 10);
-      score -= Math.round(summary.falseAlarmRate * 10);
+      score += summary.recurringTriggers.length * 12;
+      score += summary.persistentTriggers.length * 9;
+      score += summary.unresolvedCount * 4;
+      score += Math.round(summary.confirmedRate * 14);
+      // Heavier penalty for false-alarm history so repeatedly-noisy blocks
+      // don't dominate ranking.
+      score -= Math.round(summary.falseAlarmRate * 16);
       map.set(vid, score);
     }
     return map;
